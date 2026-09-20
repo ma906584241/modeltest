@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.log
+.env
+.venv/
+venv/
+
+# Generated test evidence and reports
+模型测评结果/
+
+# Keep private source documents out of the repository by default
+*.doc
+*.docx
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

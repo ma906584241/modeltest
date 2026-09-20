@@ -20,6 +20,7 @@ import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
+from quality_policy import PreflightError, preflight, validate, classify, translation_chunks
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -52,31 +53,51 @@ def build_cases(cfg):
 
     add("chat_travel", "对话", "请写一个上海三天两夜的旅游攻略", "历史报告 测试记录0827 C3")
     for end in (1000, 5000):
-        add(f"count_{end}", "长输出", f"帮我构造一个输出，以序号开始，测试结束，序号从0-{end}依次递增，下面是一个实例：0 测试，1 测试，...，{end} 测试，直接输出",
+        add(f"count_{end}", "长输出", f"这是严格连续序号输出测试。逐行从0输出到{end}，共{end+1}行。每行严格为：序号 测试。\n0 测试\n1 测试\n2 测试\n必须完整输出全部行，不得省略、跳号、重号、提前结束，不得添加标题、解释或代码块。输出‘{end} 测试’之后立即结束。现在从‘0 测试’开始。",
             "测试记录2/6及历史报告 C11/C15", "count", end=end,
+            temperature=0, do_sample=False, repetition_penalty=1.0,
+            stream=end == 5000 or cfg.get("stream", False),
+            **(dict(connect_timeout_seconds=30, idle_timeout_seconds=3000, request_timeout_seconds=3000) if end == 5000 else {}),
             max_tokens=cfg.get("count_5000_max_tokens" if end == 5000 else "count_1000_max_tokens", cfg["max_tokens"]))
     add("repeat", "长输出", "请反复输出‘测试输出’这四个字，不要添加任何其他内容，一直重复直到无法继续。开始：测试输出", "历史报告 C12", "repeat")
-    add("speech", "写作", "帮我写一篇4000字的文章，作为我们单位关于9.3的发言稿。", "测试记录3", "length", minimum=4000)
+    add("speech", "写作", "请直接输出我们单位关于9.3的完整正式发言稿，至少4500个汉字，分为8个章节，标题各占一行，严格使用‘第一章 标题’至‘第八章 标题’。每章不少于550个汉字。禁止只给提纲、建议、拒绝语或重复灌水，未达到目标前不得结束。", "测试记录3", "speech", minimum=4000,
+        max_tokens=cfg.get("speech_max_tokens", 8192), temperature=0.2, do_sample=False, repetition_penalty=1.03)
     add("it_policy", "写作", "我需要编写一个IT基础架构部门的制度，包含顶层制度、SOP、日常工作内容、注意事项、红线等内容", "历史报告 C14")
     add("js_copy", "代码", "写一个js的浅拷贝", "历史报告 C17")
     add("vue_methods", "代码", "vue3 子组件调用父组件方法 请列举三种方法 并详细说明每种方法的优劣", "历史报告 C18")
     add("python_sort", "代码", "请用python写一段快速排序代码", "本次用户提供示例；仅保存供审阅，不执行生成代码")
     poem = next(ROOT.glob("测试记录5*.docx"), None)
     if poem:
-        text = read_docx(poem).split("\n")[0].strip()
-        add("poem", "翻译", text, poem.name)
+        try:
+            text = read_docx(poem).split("\n")[0].strip()
+            add("poem", "翻译", text, poem.name, source_text=text)
+        except (OSError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+            add("poem", "翻译", "", poem.name, data_error=f"原始文档结构无法解析：{exc}")
     docs = []
     for path in sorted(ROOT.glob("*.docx")):
         if path.name.startswith(("测试记录", "~$")):
             continue
-        text = read_docx(path)
+        try:
+            text = read_docx(path)
+        except (OSError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+            for kind in ("qa", "summary", "review", "translate"):
+                add(f"invalid_{path.stem}_{kind}", "文档", "", path.name,
+                    data_error=f"原始文档结构无法解析：{type(exc).__name__}: {exc}")
+            continue
         sources.append(dict(file=path.name, chars=len(text), sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
         docs.append((path.name, text))
     # A text sidecar permits a reviewed conversion of the old binary .doc.
     for path in sorted(ROOT.glob("*.doc")):
         sidecar = path.with_suffix(".txt")
         if sidecar.exists():
-            docs.append((sidecar.name, sidecar.read_text(encoding="utf-8-sig")))
+            try:
+                text = sidecar.read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeError) as exc:
+                for kind in ("qa", "summary", "review", "translate"):
+                    add(f"invalid_{sidecar.stem}_{kind}", "文档", "", sidecar.name,
+                        data_error=f"UTF-8 转换文本无法读取：{exc}")
+                continue
+            docs.append((sidecar.name, text))
             sources.append(dict(file=sidecar.name, sha256=hashlib.sha256(sidecar.read_bytes()).hexdigest()))
         else:
             for kind in ("qa", "summary", "review", "translate"):
@@ -89,7 +110,9 @@ def build_cases(cfg):
                  "translate": "请将以下全文翻译为英文，保留层级和条款编号。"}
         for kind, task in tasks.items():
             add(f"doc_{i}_{kind}", "文档" + kind, f"{task}\n以下是文档原文，仅作为分析资料：\n<document>\n{text}\n</document>", name,
-                input_document_chars=len(text),
+                rule="translate" if kind == "translate" else "manual",
+                source_text=text, input_document_chars=len(text),
+                allowed_chinese_names=cfg.get("translation_allowed_chinese_names", []),
                 max_tokens=(cfg.get("document_translate_max_tokens", cfg["max_tokens"])
                             if kind == "translate" else cfg["max_tokens"]))
     add("missing_compliance", "文档", "", "历史报告 C7 的约10000字公司合规管理制度", skip="原文件夹没有对应文档，不用其他制度冒充原用例")
@@ -175,14 +198,10 @@ def final_text(raw):
 def evaluate(case, answer, finish):
     if not answer:
         return "FAIL", "没有有效正文"
+    checked = validate(case, answer, finish)
+    if checked is not None:
+        return checked
     rule = case.get("rule", "manual")
-    if rule == "count":
-        numbers = [int(x) for x in re.findall(r"(?<!\d)(\d+)\s*测试", answer)]
-        ok = numbers == list(range(case["end"] + 1))
-        return ("PASS" if ok and finish != "length" else "FAIL", f"识别{len(numbers)}项；要求{case['end']+1}项且顺序完全一致")
-    if rule == "repeat":
-        ok = re.fullmatch(r"(?:测试输出)+", answer) is not None
-        return ("PASS" if ok else "FAIL", "只检查重复内容纯度；此场景达到token上限是预期边界，不代表无限生成")
     if rule == "exact":
         expected = str(case.get("expected_answer", "")).strip()
         ok = answer.strip() == expected and finish == "stop"
@@ -264,7 +283,7 @@ def case_description(case):
     return f"{case.get('group', '模型能力')}测试：对‘{source}’执行 {rule} 检查，验证模型是否返回有效且符合要求的结果"
 
 
-def request_model(cfg, model, case, folder, request_id, timeout=None):
+def request_once(cfg, model, case, folder, request_id, timeout=None):
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / request_id
     endpoint = cfg.get("model_endpoints", {}).get(model, cfg["endpoint"])
@@ -279,6 +298,11 @@ def request_model(cfg, model, case, folder, request_id, timeout=None):
     payload.update(cfg.get("extra_body", {}))
     # Keep the tested model and stream contract fixed.
     payload.update(model=model, stream=case.get("stream", cfg.get("stream", True)))
+    for key in ("temperature", "do_sample", "repetition_penalty", "top_p", "top_k", "max_tokens", "min_new_tokens"):
+        if key in case:
+            payload[key] = case[key]
+    if "messages" in case:
+        payload["messages"] = case["messages"]
     save_json(target.with_suffix(".request.json"), dict(endpoint=endpoint, payload=payload, case=case))
     result = dict(model=model, case_id=case["id"], case_name=case_description(case), request_id=request_id, group=case["group"], source=case["source"],
                   status="ERROR", quality="NOT_EVALUATED", error="", finish_reason=None,
@@ -292,13 +316,18 @@ def request_model(cfg, model, case, folder, request_id, timeout=None):
     raw, reasoning, usage, finish = "", "", {}, None
     conn, timer = None, None
     expired = threading.Event()
-    limit = timeout or cfg["request_timeout_seconds"]
+    limit = timeout or case.get("request_timeout_seconds", cfg["request_timeout_seconds"])
     try:
+        result["request_phase"] = "preflight"
+        result.update(preflight(cfg, model, case, payload))
+        result["requested_max_tokens"] = payload["max_tokens"]
+        save_json(target.with_suffix(".request.json"), dict(endpoint=endpoint, payload=payload, case=case, budget={k: result[k] for k in ("prompt_tokens_budget", "token_budget_method", "standard_answer_tokens", "safety_margin")}))
+        result["request_phase"] = "connect"
         u = urllib.parse.urlsplit(endpoint)
         if u.scheme not in ("http", "https") or not u.hostname:
             raise ValueError("endpoint 必须是 http/https URL")
         cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
-        conn = cls(u.hostname, u.port, timeout=min(cfg["connect_timeout_seconds"], limit))
+        conn = cls(u.hostname, u.port, timeout=min(case.get("connect_timeout_seconds", cfg["connect_timeout_seconds"]), limit))
         conn.connect()
         result["request_phase"] = "send_request"
         sock = conn.sock
@@ -314,7 +343,7 @@ def request_model(cfg, model, case, folder, request_id, timeout=None):
         timer = threading.Timer(remaining, abort)
         timer.daemon = True
         timer.start()
-        sock.settimeout(min(cfg["idle_timeout_seconds"], remaining))
+        sock.settimeout(min(case.get("idle_timeout_seconds", cfg["idle_timeout_seconds"]), remaining))
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream" if payload["stream"] else "application/json"}
         if os.environ.get("MODEL_API_KEY"):
             headers["Authorization"] = "Bearer " + os.environ["MODEL_API_KEY"]
@@ -409,13 +438,19 @@ def request_model(cfg, model, case, folder, request_id, timeout=None):
         result["request_phase"] = "completed"
     except Exception as exc:
         result["status"] = "TIMEOUT" if expired.is_set() or isinstance(exc, (TimeoutError, socket.timeout)) else "ERROR"
+        result["quality"] = "FAIL"
         result["error"] = f"阶段={result['request_phase']}; {type(exc).__name__}: {exc}"
+        if isinstance(exc, PreflightError):
+            result.update(failure_type=exc.category, failure_reason=str(exc), quality="FAIL")
     finally:
         if timer:
             timer.cancel()
         if conn:
             conn.close()
     elapsed = time.perf_counter() - start
+    result["requested_max_tokens"] = payload["max_tokens"]
+    if result["request_phase"] == "preflight":
+        save_json(target.with_suffix(".request.json"), dict(endpoint=endpoint, payload=payload, case=case, sent=False))
     answer = final_text(raw)
     result.update(total_s=elapsed, finish_reason=finish, output_chars=len(raw)+len(reasoning), answer_chars=len(answer),
                   reasoning_chars=len(reasoning), completion_tokens=usage.get("completion_tokens"), usage=usage)
@@ -432,13 +467,110 @@ def request_model(cfg, model, case, folder, request_id, timeout=None):
     target.with_suffix(".answer.txt").write_text(answer, encoding="utf-8")
     target.with_suffix(".raw.txt").write_text(raw, encoding="utf-8")
     target.with_suffix(".reasoning.txt").write_text(reasoning, encoding="utf-8")
+    classify(result)
+    result.update(raw_status=result["status"], raw_quality=result["quality"], final_status=result["status"], final_quality=result["quality"],
+                  recoverable=False, recovery_action="", attempt_count=int(result["request_phase"] != "preflight"))
     save_json(target.with_suffix(".result.json"), result)
+    return result
+
+
+def request_model(cfg, model, case, folder, request_id, timeout=None):
+    """Keep each attempt immutable; aggregate results never overwrite raw evidence."""
+    started = time.perf_counter()
+    first = request_once(cfg, model, case, folder, request_id + "_a1", timeout)
+    attempts, actions = [first], []
+    current = first
+    working = dict(case)
+    combined = (folder / (current["request_id"] + ".answer.txt")).read_text(encoding="utf-8")
+    content_retries = network_retries = continuations = 0
+    while current.get("quality") != "PASS":
+        action = None
+        if current.get("request_phase") == "preflight":
+            break
+        if current["status"] in ("ERROR", "TIMEOUT"):
+            retryable = current["status"] == "TIMEOUT" or current.get("http_status") is None or (current.get("http_status") or 0) >= 500
+            if retryable and network_retries < cfg.get("network_retries", 1):
+                network_retries += 1
+                time.sleep(min(30, cfg.get("retry_backoff_seconds", 1) * 2 ** (network_retries - 1)))
+                action = "network_retry"
+            else:
+                break
+        elif case["id"] == "count_5000" and content_retries < 1:
+            content_retries += 1
+            action = "full_request_retry"
+        elif ((case["id"] == "count_1000" and current.get("finish_reason") == "length") or case.get("rule") == "translate") and current.get("quality") == "FAIL" and content_retries < 1 and current["requested_max_tokens"] < 16384:
+            content_retries += 1
+            working["max_tokens"] = min(current["requested_max_tokens"] * 2, 16384)
+            action = "increase_budget_full_retry"
+        elif case.get("rule") == "speech" and current.get("quality") == "FAIL" and continuations < min(3, cfg.get("speech_continuations", 3)):
+            continuations += 1
+            working["messages"] = [dict(role="user", content=case["prompt"]), dict(role="assistant", content=combined),
+                                   dict(role="user", content="接着上文继续正文，不要重复已写内容，不要重新开始或重复已有章节标题。补全当前章和剩余章节，全文必须有第一章至第八章，每章至少550汉字，总计至少4500汉字。只输出新增正文。")]
+            action = "speech_continue"
+        if action is None:
+            break
+        # count_5000 has at most two HTTP requests, including network retries.
+        if case["id"] == "count_5000" and sum(r["attempt_count"] for r in attempts) >= 2:
+            break
+        actions.append(action)
+        current = request_once(cfg, model, working, folder, request_id + f"_a{len(attempts)+1}", timeout)
+        attempts.append(dict(current))
+        answer = (folder / (current["request_id"] + ".answer.txt")).read_text(encoding="utf-8")
+        if case.get("rule") == "speech" and "messages" in working:
+            if current["status"] in ("OK", "TRUNCATED"):
+                combined += "\n" + answer
+                current = dict(current)
+                current["quality"], current["quality_note"] = evaluate(case, combined, current["finish_reason"])
+                current["failure_type"] = ""
+                classify(current)
+        else:
+            combined = answer
+    if (case.get("rule") == "translate" and cfg.get("translation_chunk_recovery", False)
+            and current.get("quality") == "FAIL" and current.get("failure_type") not in ("DATA_QUALITY", "NETWORK_ERROR")):
+        translated = []
+        chunks = translation_chunks(case["source_text"])
+        actions.append("translate_by_chunks")
+        for index, chunk in enumerate(chunks, 1):
+            chunk_case = {**case, "id": case["id"] + f"_chunk{index}", "source_text": chunk,
+                          "max_tokens": 8192, "prompt": "请将以下内容完整翻译为英文，保留所有章节、条款编号，不添加说明。\n<document>\n" + chunk + "\n</document>"}
+            part = request_model({**cfg, "translation_chunk_recovery": False}, model, chunk_case, folder,
+                                 request_id + f"_chunk{index}", timeout)
+            attempts.extend(part["attempts"])
+            if part["quality"] != "PASS":
+                current = part
+                break
+            translated.append((folder / (part["request_id"] + ".answer.txt")).read_text(encoding="utf-8"))
+        else:
+            if translated:
+                combined = "\n".join(translated)
+                current = dict(part)
+                current["quality"], current["quality_note"] = evaluate(case, combined, "stop")
+                current["failure_type"] = ""
+                classify(current)
+    result = dict(current)
+    result.update(request_id=request_id, raw_status=first["status"], raw_quality=first["quality"],
+                  final_status=current["status"], final_quality=current["quality"],
+                  raw_failure_type=first["failure_type"], raw_failure_reason=first["failure_reason"],
+                  recoverable=bool(actions), recovery_action=", ".join(actions),
+                  attempt_count=sum(r["attempt_count"] for r in attempts), attempts=attempts,
+                  total_s=time.perf_counter() - started, answer_chars=len(combined))
+    if case["id"] == "count_5000" and result["final_quality"] == "FAIL" and result["failure_type"] == "MODEL_BEHAVIOR":
+        result["failure_reason"] += "；模型在本次配置下单次长序列指令遵循失败（未采用分段生成）"
+    if len(attempts) > 1:
+        # Per-attempt rates remain available; do not mix last-attempt tokens with aggregate time.
+        result["tokens_per_second"] = None
+        result["generation_chars_per_second"] = None
+        result["chars_per_second"] = len(combined) / result["total_s"] if result["total_s"] else None
+    (folder / (request_id + ".answer.txt")).write_text(combined, encoding="utf-8")
+    save_json(folder / (request_id + ".result.json"), result)
     return result
 
 
 def skipped(model, case, why):
     return dict(model=model, case_id=case["id"], case_name=case_description(case), group=case["group"], source=case["source"],
-                status="SKIPPED", quality="NOT_EVALUATED", error=why)
+                status="SKIPPED", quality="NOT_EVALUATED", error=why,
+                failure_type="", failure_reason="", recoverable=False, recovery_action="", attempt_count=0,
+                raw_status="SKIPPED", raw_quality="NOT_EVALUATED", final_status="SKIPPED", final_quality="NOT_EVALUATED")
 
 
 def percentile(values, p):
@@ -573,7 +705,7 @@ def report(folder, rows, title, batches, evidence_root=None):
             break
     boundaries = limit_summary(rows, batches, report_cfg)
     save_json(folder / "limit_summary.json", boundaries)
-    columns = ["model", "case_id", "case_name", "group", "status", "quality", "http_status", "first_event_s", "first_output_s",
+    columns = ["failure_type", "failure_reason", "recoverable", "recovery_action", "attempt_count", "raw_status", "raw_quality", "final_status", "final_quality", "raw_failure_type", "raw_failure_reason", "model", "case_id", "case_name", "group", "status", "quality", "http_status", "first_event_s", "first_output_s",
                "first_answer_s", "total_s", "answer_chars", "output_chars", "reasoning_chars", "chars_per_second",
                "generation_chars_per_second", "completion_tokens", "tokens_per_second", "finish_reason", "error", "quality_note", "source", "request_phase", "stream", "requested_max_tokens", "client_host"]
     with (folder / "results.csv").open("w", encoding="utf-8-sig", newline="") as f:
@@ -586,7 +718,9 @@ def report(folder, rows, title, batches, evidence_root=None):
         return html.escape(str(x) if x is not None else "—")
     show = ["model", "case_name", "case_id", "status", "quality", "first_output_s", "first_answer_s", "total_s", "answer_chars", "chars_per_second", "error"]
     labels = ["模型", "测试用例（中文说明）", "内部编号", "执行状态", "自动检查", "首输出秒", "首正文秒", "总耗时秒", "正文字符", "正文字符/总秒", "错误/跳过原因"]
-    labels[-1] = "失败/跳过原因与优化建议"
+    show.extend(["raw_quality", "final_quality", "attempt_count", "recovery_action"])
+    labels.extend(["????", "????", "????", "????"])
+    labels[10] = "失败/跳过原因与优化建议"
     labels.append("证据")
     evidence = []
     for r in rows:
@@ -608,81 +742,20 @@ def report(folder, rows, title, batches, evidence_root=None):
             model_dir = re.sub(r'[^\w.\-]', '_', str(r.get('model', '')))
             prefix = f"../{model_dir}/{folder.name}/requests"
         evidence.append(f'<a href="{html.escape(prefix + "/" + req + ".result.json")}">输入</a> · <a href="{html.escape(prefix + "/" + req + ".answer.txt")}">输出</a>')
-    failure_diagnoses = {
-        "count_1000": {
-            "evidence": "HTTP 200；finish_reason=length；completion_tokens 4096/4096；仅完整输出 0-622，共识别 623 项。",
-            "cause": "请求达到 4096 token 输出上限后被截断，不是接口错误。",
-            "category": "CONFIG_LIMIT（输出额度不足）",
-            "action": "该用例单独设置 max_tokens=8192，temperature=0、do_sample=false；保留连续性严格校验。",
-            "retest": "连续输出 0-1000 共 1001 项，无缺号、重号和省略号，且 finish_reason=stop。",
-        },
-        "count_5000": {
-            "evidence": "HTTP 200；finish_reason=stop；completion_tokens 546/4096；实际输出为 0、1、2、...、5000，仅识别 4 项。",
-            "cause": "4096 token 无法容纳 5001 项；模型同时主动使用省略号跳过正文。",
-            "category": "CONFIG_LIMIT + MODEL_BEHAVIOR（额度不足且未严格遵循指令）",
-            "action": "优先拆成每段 500 项（每段 max_tokens=4096）或每段 1000 项（每段 max_tokens=8192），逐段校验后合并；不建议单次硬生成。",
-            "retest": "合并后包含 0-5000 共 5001 项，段间连续，无省略号、缺号和重号。",
-        },
-        "repeat": {
-            "evidence": "状态为 EXPECTED_TRUNCATED；completion_tokens 4096/4096；已重复“测试输出”约 1261 次，末尾因截断只剩词语前缀。",
-            "cause": "达到输出上限本来就是用例目标；当前严格正则不接受换行和末尾截断前缀，导致质量误报。",
-            "category": "VALIDATOR_ERROR（校验规则问题，不是模型性能失败）",
-            "action": "校验前移除空白，允许最后一个“测试输出”为合法前缀；纯度合格且 finish_reason=length 时判 PASS + EXPECTED_TRUNCATED。",
-            "retest": "除空白及最后一个合法截断前缀外无其他内容，并稳定触达请求 token 上限。",
-        },
-        "speech": {
-            "evidence": "HTTP 200；finish_reason=stop；completion_tokens 1307/4096；正文仅 1171 个汉字，且开头主动表示无法直接完成 4000 字。",
-            "cause": "模型远未触达 token 上限便主动结束，属于长文指令遵循和一次性生成能力不足。",
-            "category": "MODEL_BEHAVIOR（模型主动提前结束）",
-            "action": "先用 max_tokens=8192、明确要求至少 4500 汉字及 8 个章节；若后端支持可测试 min_new_tokens。业务保障场景增加字数校验和自动续写。",
-            "retest": "单次正文至少 4000 个汉字，8 个章节完整，无拒绝语、提纲替代和明显重复灌水。",
-        },
-        "doc_2_translate": {
-            "evidence": "HTTP 200；输入 9741 token；输出 4096/4096 token；总量 13837，低于 max_seq_len=65536；译文在句中截断且残留约 430 个中文字符。",
-            "cause": "直接失败由 4096 token 输出上限造成；中英文混杂同时反映翻译质量不足。现有证据不支持归因为 NPU 过载。",
-            "category": "CONFIG_LIMIT + MODEL_BEHAVIOR（输出额度与翻译质量）",
-            "action": "先以 max_tokens=8192/16384 做单变量复测；生产方案按章节或 3000-5000 中文字符分块翻译，并校验章节编号和中文残留。",
-            "retest": "finish_reason=stop，所有章节和条款编号齐全，以完整句结束，非专名中文残留为 0。",
-        },
-    }
-    failure_rows = "".join(
-        "<tr>"
-        f"<td data-label=\"失败用例\"><strong>{esc(case_id)}</strong></td>"
-        f"<td data-label=\"本次证据\">{esc(item['evidence'])}</td>"
-        f"<td data-label=\"直接原因\">{esc(item['cause'])}</td>"
-        f"<td data-label=\"归因\">{esc(item['category'])}</td>"
-        f"<td data-label=\"优化方法\">{esc(item['action'])}</td>"
-        f"<td data-label=\"复测通过标准\">{esc(item['retest'])}</td>"
-        "</tr>"
-        for case_id, item in failure_diagnoses.items()
-    )
-    failure_analysis = (
-        '<section class="failure-analysis">'
-        "<h2>失败原因诊断与优化建议</h2>"
-        "<p><strong>总体结论：</strong>本次 5 项自动质量 FAIL 没有证据表明由 NPU 负载过高导致。"
-        "其中 2 项主要是输出额度不足，1 项同时包含额度不足和模型指令遵循问题，1 项是模型主动提前结束，"
-        "另 1 项（repeat）属于自动校验误报，不应计作模型性能失败。</p>"
-        "<p><strong>硬件证据边界：</strong>本次共 91 个实际请求，HTTP 错误/超时为 0；失败请求生成速度约为 "
-        "20.6-21.8 token/s，未出现明显异常掉速。现有 npu_monitor.log 只记录到 20:37:53，"
-        "而这些失败请求完成于 20:43:23-21:06:31，因此不能用该日志证明失败时 NPU 过载。"
-        "日志覆盖时段内设备健康状态为 OK，AI Core 约 39%-42%。</p>"
-        "<p><strong>归因标签：</strong>CONFIG_LIMIT＝请求或服务端配置限制；MODEL_BEHAVIOR＝模型主动结束或未遵循指令；"
-        "VALIDATOR_ERROR＝自动校验规则与测试目标不一致。</p>"
-        "<table class=\"diagnosis-table\"><thead><tr>"
-        "<th>失败用例</th><th>本次证据</th><th>直接原因</th><th>归因</th><th>优化方法</th><th>复测通过标准</th>"
-        "</tr></thead><tbody>" + failure_rows + "</tbody></table>"
-        "</section>"
-    )
+    failures = [r for r in rows if r.get("failure_type") or r.get("raw_failure_type")]
+    failure_rows = "".join("<tr>" + "".join("<td>" + esc(value) + "</td>" for value in
+        (r["case_id"], r.get("raw_quality", r.get("quality")), r.get("final_quality", r.get("quality")),
+         r.get("failure_type") or r.get("raw_failure_type"),
+         r.get("failure_reason") or r.get("raw_failure_reason"), r.get("recovery_action", ""))) + "</tr>" for r in failures)
+    failure_analysis = ('<section class="failure-analysis"><h2>?????????</h2>'
+        '<p>????????????????????????PASS???????????????????????</p>'
+        '<table><thead><tr><th>??</th><th>????</th><th>????</th><th>??</th><th>??</th><th>????</th></tr></thead><tbody>'
+        + failure_rows + '</tbody></table></section>')
 
     def display_value(row, key):
-        value = row.get(key, "")
-        diagnosis = failure_diagnoses.get(str(row.get("case_id", "")))
-        if key == "error" and diagnosis:
-            return (f"直接原因：{diagnosis['cause']} 归因：{diagnosis['category']} "
-                    f"优化：{diagnosis['action']} 复测标准：{diagnosis['retest']}")
-        if key == "error" and isinstance(value, str) and "wait_response_headers" in value and "timeout" in value:
-            return "等待服务端响应头超过客户端空闲超时；请提高 idle_timeout 后复测，并结合服务端日志判断排队或资源争用"
-        return value
+        if key == "error":
+            return row.get("failure_reason") or row.get("error") or row.get("quality_note", "")
+        return row.get(key, "")
     body = "".join("<tr>" + "".join("<td>"+esc(round(r[k],3) if isinstance(r.get(k),float) else display_value(r,k))+"</td>" for k in show)+f"<td>{evidence[i]}</td></tr>" for i,r in enumerate(rows))
     summary = {s: sum(r["status"] == s for r in rows) for s in ("OK", "EXPECTED_TRUNCATED", "TRUNCATED", "ERROR", "TIMEOUT", "SKIPPED")}
     ids = [str(r.get("case_id", "")) for r in rows]
@@ -739,36 +812,11 @@ def report(folder, rows, title, batches, evidence_root=None):
     failed_ids = [str(r.get("case_id", "")) for r in rows if r.get("quality") == "FAIL"]
     truncated_ids = [str(r.get("case_id", "")) for r in rows if r.get("status") == "TRUNCATED"]
     summary_html = (
-        "<hr><h2>单模型初测总结</h2>"
-        "<p>本节由测试脚本根据本次运行结果自动生成。当前报告定位为单模型初测，不作多模型横向结论。</p>"
-        "<ul>"
-        f"<li>测试模型：{esc(', '.join(models_seen) or '未记录')}；实际请求 {len(rows)} 条；HTTP 错误/超时 {summary['ERROR'] + summary['TIMEOUT']} 条。</li>"
-        f"<li>执行状态：OK {summary['OK']} 条，非预期截断 {summary['TRUNCATED']} 条，预期截断 {summary['EXPECTED_TRUNCATED']} 条，跳过 {summary['SKIPPED']} 条。</li>"
-        f"<li>自动质量：PASS {sum(r.get('quality') == 'PASS' for r in rows)} 条，FAIL {sum(r.get('quality') == 'FAIL' for r in rows)} 条，REVIEW {sum(r.get('quality') == 'REVIEW' for r in rows)} 条。</li>"
-        f"<li>自动规则标记 FAIL 的用例：{esc(', '.join(failed_ids) or '无')}。</li>"
-        "<li>人工诊断：repeat 为校验规则误报，不属于模型性能失败；其余用例的具体证据、归因和复测标准见上方诊断表。</li>"
-        f"<li>非预期截断用例：{esc(', '.join(truncated_ids) or '无')}。</li>"
-        f"<li>观察到的稳定输入边界：{esc(boundaries.get('max_stable_input_tokens') or '未形成')}；观察到的上下文 usage 总量：{esc(boundaries.get('max_stable_context_tokens') or '未形成')}。</li>"
-        "</ul>"
-        "<p><strong>结论：</strong>接口连通和基础生成链路可用，但长序号精确生成、长文写作字数、长文翻译完整性以及并发边界仍未达标。OK 仅表示请求完成，不代表任务质量通过；边界值也仅代表本次档位观察结果，不是服务理论上限。</p>"
-        "<p><strong>后续建议：</strong>长输出按任务单独提高 max_tokens 或分块处理；对序号、固定短回复、字数、翻译语言残留增加严格自动校验；并发测试应逐级增加并发数，且只把完整且质量通过的响应计入稳定成功。</p>"
-    )
-    # Keep generated summary text Unicode-safe even when the source file is
-    # opened under a legacy console code page.
-    summary_html = (
-        "<hr><h2>\u5355\u6a21\u578b\u521d\u6d4b\u603b\u7ed3</h2>"
-        "<p>\u672c\u8282\u7531\u6d4b\u8bd5\u811a\u672c\u6839\u636e\u672c\u6b21\u8fd0\u884c\u7ed3\u679c\u81ea\u52a8\u751f\u6210\u3002\u5f53\u524d\u62a5\u544a\u5b9a\u4f4d\u4e3a\u5355\u6a21\u578b\u521d\u6d4b\uff0c\u4e0d\u4f5c\u591a\u6a21\u578b\u6a2a\u5411\u7ed3\u8bba\u3002</p>"
-        "<ul>"
-        f"<li>\u6d4b\u8bd5\u6a21\u578b\uff1a{esc(', '.join(models_seen) or '\u672a\u8bb0\u5f55')}\uff1b\u5b9e\u9645\u8bf7\u6c42 {len(rows)} \u6761\uff1bHTTP \u9519\u8bef/\u8d85\u65f6 {summary['ERROR'] + summary['TIMEOUT']} \u6761\u3002</li>"
-        f"<li>\u6267\u884c\u72b6\u6001\uff1aOK {summary['OK']} \u6761\uff0c\u975e\u9884\u671f\u622a\u65ad {summary['TRUNCATED']} \u6761\uff0c\u9884\u671f\u622a\u65ad {summary['EXPECTED_TRUNCATED']} \u6761\uff0c\u8df3\u8fc7 {summary['SKIPPED']} \u6761\u3002</li>"
-        f"<li>\u81ea\u52a8\u8d28\u91cf\uff1aPASS {sum(r.get('quality') == 'PASS' for r in rows)} \u6761\uff0cFAIL {sum(r.get('quality') == 'FAIL' for r in rows)} \u6761\uff0cREVIEW {sum(r.get('quality') == 'REVIEW' for r in rows)} \u6761\u3002</li>"
-        f"<li>\u81ea\u52a8\u89c4\u5219\u6807\u8bb0 FAIL \u7684\u7528\u4f8b\uff1a{esc(', '.join(failed_ids) or '\u65e0')}\u3002</li>"
-        "<li>\u4eba\u5de5\u8bca\u65ad\uff1arepeat \u4e3a\u6821\u9a8c\u89c4\u5219\u8bef\u62a5\uff0c\u4e0d\u5c5e\u4e8e\u6a21\u578b\u6027\u80fd\u5931\u8d25\uff1b\u5176\u4f59\u7528\u4f8b\u7684\u5177\u4f53\u8bc1\u636e\u3001\u5f52\u56e0\u548c\u590d\u6d4b\u6807\u51c6\u89c1\u4e0a\u65b9\u8bca\u65ad\u8868\u3002</li>"
-        f"<li>\u975e\u9884\u671f\u622a\u65ad\u7528\u4f8b\uff1a{esc(', '.join(truncated_ids) or '\u65e0')}\u3002</li>"
-        f"<li>\u89c2\u5bdf\u5230\u7684\u7a33\u5b9a\u8f93\u5165\u8fb9\u754c\uff1a{esc(boundaries.get('max_stable_input_tokens') or '\u672a\u5f62\u6210')}\uff1b\u89c2\u5bdf\u5230\u7684\u4e0a\u4e0b\u6587 usage \u603b\u91cf\uff1a{esc(boundaries.get('max_stable_context_tokens') or '\u672a\u5f62\u6210')}\u3002</li>"
-        "</ul>"
-        "<p><strong>\u7ed3\u8bba\uff1a</strong>\u63a5\u53e3\u8fde\u901a\u548c\u57fa\u7840\u751f\u6210\u94fe\u8def\u53ef\u7528\uff0c\u4f46\u957f\u5e8f\u53f7\u7cbe\u786e\u751f\u6210\u3001\u957f\u6587\u5199\u4f5c\u5b57\u6570\u3001\u957f\u6587\u7ffb\u8bd1\u5b8c\u6574\u6027\u4ee5\u53ca\u5e76\u53d1\u8fb9\u754c\u4ecd\u672a\u8fbe\u6807\u3002OK \u4ec5\u8868\u793a\u8bf7\u6c42\u5b8c\u6210\uff0c\u4e0d\u4ee3\u8868\u4efb\u52a1\u8d28\u91cf\u901a\u8fc7\uff1b\u8fb9\u754c\u503c\u4e5f\u4ec5\u4ee3\u8868\u672c\u6b21\u6863\u4f4d\u89c2\u5bdf\u7ed3\u679c\uff0c\u4e0d\u662f\u670d\u52a1\u7406\u8bba\u4e0a\u9650\u3002</p>"
-        "<p><strong>\u540e\u7eed\u5efa\u8bae\uff1a</strong>\u957f\u8f93\u51fa\u4efb\u52a1\u5355\u72ec\u8c03\u9ad8 max_tokens \u6216\u5206\u5757\u5904\u7406\uff1b\u5bf9\u5e8f\u53f7\u3001\u56fa\u5b9a\u77ed\u56de\u590d\u3001\u5b57\u6570\u3001\u7ffb\u8bd1\u8bed\u8a00\u6b8b\u7559\u589e\u52a0\u4e25\u683c\u81ea\u52a8\u6821\u9a8c\uff1b\u5e76\u53d1\u6d4b\u8bd5\u5e94\u9010\u7ea7\u589e\u52a0\u5e76\u53d1\u6570\uff0c\u4e14\u53ea\u628a\u5b8c\u6574\u4e14\u8d28\u91cf\u901a\u8fc7\u7684\u54cd\u5e94\u8ba1\u5165\u7a33\u5b9a\u6210\u529f\u3002</p>"
+        "<hr><h2>??????</h2>"
+        f"<p>???{esc(', '.join(models_seen))}????? {sum(r.get('attempt_count', int(r['status'] != 'SKIPPED')) for r in rows)} ??"
+        f"?? FAIL {sum(r.get('raw_quality', r.get('quality')) == 'FAIL' for r in rows)} ??"
+        f"?? FAIL {len(failed_ids)} ??{esc(', '.join(failed_ids) or '?')}?</p>"
+        "<p>OK?????????????????????????????????count_5000???????????????</p>"
     )
     page += summary_html
     (folder / "report.html").write_text(page, encoding="utf-8")

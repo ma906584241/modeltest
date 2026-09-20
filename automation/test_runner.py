@@ -6,6 +6,8 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
+import quality_policy as policy
 
 import run_tests as runner
 
@@ -29,8 +31,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path == "/error":
-            self.send_response(404)
+        if self.path in ("/error", "/server_error"):
+            self.send_response(503 if self.path == "/server_error" else 404)
             self.send_header("Content-Length", "13")
             self.end_headers()
             self.wfile.write(b"unknown model")
@@ -135,6 +137,186 @@ class RunnerTests(unittest.TestCase):
         case = dict(rule="count",end=2)
         for text in ("0 测试，2 测试", "0 测试，1 测试，1 测试，2 测试", "2 测试，1 测试，0 测试"):
             self.assertEqual(runner.evaluate(case,text,"stop")[0],"FAIL")
+
+    def test_repeat_whitespace_and_prefix(self):
+        case = dict(rule="repeat")
+        for tail in ("", "测", "测试", "测试输"):
+            self.assertEqual(runner.evaluate(case, "测试输出\n\t 测试输出" + tail, "length")[0], "PASS")
+        for text in ("测试输出其他", "测试输出测输", "测试输出测试"):
+            self.assertEqual(runner.evaluate(case, text, "stop")[0], "FAIL")
+
+    def test_strict_full_sequences(self):
+        for end in (1000, 5000):
+            case = dict(rule="count", end=end)
+            answer = "\n".join(f"{i} 测试" for i in range(end + 1))
+            self.assertEqual(runner.evaluate(case, answer, "stop")[0], "PASS")
+            for wrong in (answer + "\n解释", answer.replace("5 测试\n", "", 1),
+                          answer.replace("5 测试\n", "4 测试\n", 1), answer + "...", answer[:-8]):
+                self.assertEqual(runner.evaluate(case, wrong, "stop")[0], "FAIL")
+            self.assertEqual(runner.evaluate(case, answer, "length")[0], "FAIL")
+
+    def test_translation_structure_language_and_ending(self):
+        case = dict(rule="translate", source_text="第一章 总则\n1.1 内容\n第二章 实施\n2.1 内容")
+        good = "Chapter 1 General\n1.1 A complete sentence.\nChapter 2 Implementation\n2.1 Another complete sentence."
+        self.assertEqual(runner.evaluate(case, good, "stop")[0], "PASS")
+        for text in (good.replace("Chapter 2 Implementation\n", ""), good + "中文。", good[:-1], good.replace("2.1", "2.2")):
+            self.assertEqual(runner.evaluate(case, text, "stop")[0], "FAIL")
+        self.assertEqual(runner.evaluate(dict(rule="translate", source_text="没有编号的原文。"), "A sentence.", "stop")[0], "REVIEW")
+
+    def config(self):
+        cfg = json.loads((runner.HERE / "config.json").read_text(encoding="utf-8"))
+        cfg.update(network_retries=0, retry_backoff_seconds=0)
+        cfg["endpoint"] = f"http://127.0.0.1:{self.server.server_port}/json_length"
+        return cfg
+
+    def test_preflight_blocks_before_network(self):
+        cfg = self.config()
+        case = dict(id="large", group="test", source="mock", prompt="x", max_tokens=65536)
+        before = len(Handler.received)
+        with tempfile.TemporaryDirectory() as directory:
+            result = runner.request_model(cfg, "mock", case, Path(directory), "large")
+        self.assertEqual(len(Handler.received), before)
+        self.assertEqual(result["failure_type"], "CONFIG_LIMIT")
+        self.assertEqual(result["attempt_count"], 0)
+        self.assertEqual(result["final_quality"], "FAIL")
+        payload = dict(max_tokens=32768, messages=[dict(role="user", content="测" * 11000)])
+        with self.assertRaisesRegex(policy.PreflightError, "max_seq_len"):
+            policy.preflight(cfg, "mock", dict(id="context"), payload)
+
+    def test_count_truncation_classified_and_bounded(self):
+        case = dict(id="count_1000", group="test", source="mock", prompt="x", rule="count", end=1000, max_tokens=8192)
+        with tempfile.TemporaryDirectory() as directory:
+            result = runner.request_model(self.config(), "mock", case, Path(directory), "count")
+            self.assertTrue((Path(directory) / "count_a1.request.json").exists())
+            self.assertTrue((Path(directory) / "count_a2.request.json").exists())
+        self.assertEqual(result["attempt_count"], 2)
+        self.assertEqual(result["failure_type"], "CONFIG_LIMIT")
+        self.assertEqual(result["raw_quality"], "FAIL")
+        self.assertEqual(result["final_quality"], "FAIL")
+        self.assertEqual([a["requested_max_tokens"] for a in result["attempts"]], [8192, 16384])
+
+    def test_real_tokenizer_budget_contract(self):
+        class Tokenizer:
+            def encode(self, text, **kwargs):
+                self.answer = text
+                return [0] * 36000
+            def apply_chat_template(self, messages, **kwargs):
+                return [0] * 100
+        tokenizer = Tokenizer()
+        cfg = self.config()
+        cfg["tokenizer_paths"] = {"mock": "local-test-tokenizer"}
+        cfg["server_limits"]["max_iter_times"] = 49152
+        cfg["supports_min_new_tokens"] = True
+        payload = dict(max_tokens=49152, messages=[dict(role="user", content="x")])
+        with patch.object(policy, "load_tokenizer", return_value=tokenizer):
+            budget = policy.preflight(cfg, "mock", dict(id="count_5000"), payload)
+        self.assertEqual(len(tokenizer.answer.splitlines()), 5001)
+        self.assertEqual(payload["max_tokens"], 39600)
+        self.assertEqual(payload["min_new_tokens"], 36000)
+        self.assertEqual(budget["prompt_tokens_budget"], 100)
+
+    def test_count5000_missing_tokenizer_blocks(self):
+        cfg = self.config()
+        with self.assertRaises(policy.PreflightError):
+            policy.preflight(cfg, "mock", dict(id="count_5000"), dict(max_tokens=49152, messages=[]))
+
+    def test_count5000_whole_request_retry_only(self):
+        cfg = self.config()
+        cfg["endpoint"] = cfg["endpoint"].replace("json_length", "ok")
+        cfg["server_limits"]["max_iter_times"] = 49152
+        case = dict(id="count_5000", group="test", source="mock", prompt="all 5001 lines", rule="count", end=5000, stream=True, max_tokens=49152)
+        before = len(Handler.received)
+        budget = dict(prompt_tokens_budget=100, token_budget_method="test_fixture", standard_answer_tokens=36000, safety_margin=1024)
+        with tempfile.TemporaryDirectory() as directory, patch.object(runner, "preflight", return_value=budget):
+            result = runner.request_model(cfg, "mock", case, Path(directory), "count")
+        self.assertEqual(len(Handler.received) - before, 2)
+        self.assertEqual(result["final_quality"], "FAIL")
+        for payload in Handler.received[before:]:
+            self.assertTrue(payload["stream"])
+            self.assertEqual(payload["messages"], [dict(role="user", content=case["prompt"])])
+
+    def test_speech_validation_and_recovery(self):
+        # Unique sentences avoid fabricating a pass through repeated padding.
+        def section(index):
+            sentences = ["这是一段正式发言正文" + chr(0x4e00 + index * 100 + j) * 2 + "我们应当认真落实工作要求并积极参与具体行动。" for j in range(16)]
+            return f"第{index}章 标题\n" + "".join(sentences)
+        complete = "\n".join(section(i) for i in range(1, 9))
+        case = dict(id="speech", group="test", source="mock", prompt="speech", rule="speech", minimum=4000)
+        self.assertEqual(runner.evaluate(case, complete, "stop")[0], "PASS")
+        self.assertEqual(runner.evaluate(case, complete.replace("第8章", "第7章"), "stop")[0], "FAIL")
+        self.assertEqual(runner.evaluate(case, complete + "\n无法直接完成发言稿", "stop")[0], "FAIL")
+        pieces = [section(1), "\n".join(section(i) for i in range(2, 9))]
+        def fake(cfg, model, task, folder, rid, timeout):
+            text = pieces.pop(0)
+            (folder / (rid + ".answer.txt")).write_text(text, encoding="utf-8")
+            quality, note = runner.evaluate(task, text, "stop")
+            return dict(request_id=rid, status="OK", quality=quality, quality_note=note, finish_reason="stop", request_phase="completed", failure_type="MODEL_BEHAVIOR", failure_reason=note, attempt_count=1, total_s=1, requested_max_tokens=8192)
+        with tempfile.TemporaryDirectory() as directory, patch.object(runner, "request_once", side_effect=fake):
+            result = runner.request_model(self.config(), "mock", case, Path(directory), "speech")
+        self.assertEqual(result["raw_quality"], "FAIL")
+        self.assertEqual(result["final_quality"], "PASS")
+        self.assertEqual(result["attempt_count"], 2)
+
+    def test_bad_document_blocked(self):
+        case = dict(id="doc", source_text="损坏\ufffd")
+        with self.assertRaises(policy.PreflightError) as raised:
+            policy.preflight(self.config(), "mock", case, dict(max_tokens=1, messages=[]))
+        self.assertEqual(raised.exception.category, "DATA_QUALITY")
+
+    def test_report_has_no_historical_diagnosis(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner.report(Path(directory), [], "empty", [])
+            page = (Path(directory) / "report.html").read_text(encoding="utf-8")
+        self.assertNotIn("仅完整输出 0-622", page)
+        self.assertNotIn("优先拆成每段 500 项", page)
+
+    def test_recovery_limit_speech(self):
+        case = dict(id="speech", group="test", source="mock", prompt="x", rule="speech", minimum=4000)
+        with tempfile.TemporaryDirectory() as directory:
+            result = runner.request_model(self.config(), "mock", case, Path(directory), "speech")
+        self.assertEqual(result["attempt_count"], 4)
+        self.assertEqual(result["final_quality"], "FAIL")
+
+    def test_case_parameters(self):
+        cases, _ = runner.build_cases(self.config())
+        by_id = {case["id"]: case for case in cases}
+        self.assertEqual(by_id["count_1000"]["max_tokens"], 8192)
+        self.assertFalse(by_id["count_5000"]["do_sample"])
+        self.assertTrue(by_id["count_5000"]["stream"])
+        self.assertEqual(by_id["count_5000"]["request_timeout_seconds"], 3000)
+        self.assertEqual(by_id["speech"]["max_tokens"], 8192)
+
+    def test_network_5xx_retry_and_4xx_no_retry(self):
+        case = dict(id="network", group="test", source="mock", prompt="x", stream=True)
+        cfg = {**self.config(), "network_retries": 1}
+        for endpoint, expected in (("server_error", 2), ("error", 1)):
+            cfg["endpoint"] = f"http://127.0.0.1:{self.server.server_port}/{endpoint}"
+            with tempfile.TemporaryDirectory() as directory:
+                result = runner.request_model(cfg, "mock", case, Path(directory), endpoint)
+            self.assertEqual(result["attempt_count"], expected)
+            self.assertEqual(result["failure_type"], "NETWORK_ERROR")
+            self.assertEqual(result["final_quality"], "FAIL")
+
+    def test_translation_chunk_recovery_retains_raw_failure(self):
+        source = "第一章 内容\n1. 内容。\n"
+        translation = "Chapter 1 Contents\n1. Complete translation."
+        case = dict(id="doc_translate", group="test", source="mock", prompt="translate", source_text=source, rule="translate", max_tokens=8192)
+        answers = ["Incomplete", "Still incomplete", translation]
+        def fake(cfg, model, task, folder, rid, timeout):
+            answer = answers.pop(0)
+            (folder / (rid + ".answer.txt")).write_text(answer, encoding="utf-8")
+            quality, note = runner.evaluate(task, answer, "stop")
+            return dict(request_id=rid, status="OK", quality=quality, quality_note=note, finish_reason="stop", request_phase="completed", failure_type="MODEL_BEHAVIOR" if quality == "FAIL" else "", failure_reason=note, attempt_count=1, total_s=1, requested_max_tokens=task["max_tokens"])
+        cfg = {**self.config(), "translation_chunk_recovery": True}
+        with tempfile.TemporaryDirectory() as directory, patch.object(runner, "request_once", side_effect=fake):
+            result = runner.request_model(cfg, "mock", case, Path(directory), "translation")
+        self.assertEqual(result["raw_quality"], "FAIL")
+        self.assertEqual(result["final_quality"], "PASS")
+        self.assertEqual(result["attempt_count"], 3)
+        text = source * 700
+        chunks = policy.translation_chunks(text)
+        self.assertEqual("".join(chunks), text)
+        self.assertTrue(all(len(c) <= 4000 for c in chunks))
 
 
 if __name__ == "__main__":

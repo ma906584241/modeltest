@@ -1,6 +1,8 @@
 {
   "endpoint": "http://127.0.0.1:1025/v1/chat/completions",
-  "models": ["deepseek14b"],
+  "models": [
+    "deepseek14b"
+  ],
   "model_endpoints": {},
   "stream": false,
   "connect_timeout_seconds": 20,
@@ -13,23 +15,60 @@
   "top_k": 20,
   "max_tokens": 4096,
   "count_1000_max_tokens": 8192,
-  "count_5000_max_tokens": 16384,
-  "document_translate_max_tokens": 16384,
+  "count_5000_max_tokens": 49152,
+  "document_translate_max_tokens": 8192,
   "assistant_prefix": "",
   "extra_body": {},
-  "concurrency_levels": [1],
+  "concurrency_levels": [
+    1
+  ],
   "stress_rounds": 3,
   "stress_max_document_chars": 16000,
-  "capacity_token_levels": [8192, 16384, 32768],
+  "capacity_token_levels": [
+    8192,
+    16384,
+    32768
+  ],
   "capacity_repeats": 3,
   "limit_repeats": 3,
-  "input_token_levels": [8192, 16384, 24576, 32768],
-  "context_token_pairs": [[16384, 4096], [24576, 4096], [32768, 4096], [32768, 16384]],
+  "input_token_levels": [
+    8192,
+    16384,
+    24576,
+    32768
+  ],
+  "context_token_pairs": [
+    [
+      16384,
+      4096
+    ],
+    [
+      24576,
+      4096
+    ],
+    [
+      32768,
+      4096
+    ],
+    [
+      32768,
+      16384
+    ]
+  ],
   "limit_concurrency_levels": [],
   "extended_concurrency_levels": [],
   "server_limits": {
     "max_seq_len": 65536,
     "max_input_token_len": 32768,
     "max_iter_times": 32768
-  }
+  },
+  "speech_max_tokens": 8192,
+  "safety_margin": 1024,
+  "tokenizer_paths": {},
+  "supports_min_new_tokens": false,
+  "network_retries": 1,
+  "retry_backoff_seconds": 1,
+  "speech_continuations": 3,
+  "translation_chunk_recovery": false,
+  "translation_allowed_chinese_names": []
 }

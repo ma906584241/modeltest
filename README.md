@@ -45,9 +45,23 @@ export MODEL_API_KEY="your-token"
 
 ## 测试文档
 
-脚本从仓库根目录读取 `.docx`、`.doc` 和相关 `.txt` 测试资料。业务文档默认被 `.gitignore` 排除，不会意外提交到仓库。
+脚本从仓库根目录读取 `.docx`、`.doc`、相关 `.txt` 以及历史 `.xlsx` 测试资料。`docs/` 只保存测试方法、用例和优化说明，不作为业务文档输入目录。业务文档默认被 `.gitignore` 排除，不会意外提交到仓库。
 
 没有文档时仍可运行不依赖文档的用例；相关文档用例会按程序规则跳过或减少覆盖范围。
+
+当前目录结构：
+
+```text
+modeltest/
+  automation/       测试程序与配置
+  docs/             测试说明和用例文档
+  模型测评结果/       自动生成的报告与逐请求证据
+  Linux测试结果/     Linux 历史场景执行结果
+  *.doc/*.docx      本地业务测试资料（Git 忽略）
+  *.txt/*.xlsx      文档转换文本和历史用例（Git 忽略）
+```
+
+详细文档入口见 [`docs/README.md`](docs/README.md)。
 
 ## 运行
 

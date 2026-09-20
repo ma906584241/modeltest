@@ -7,10 +7,15 @@ venv/
 
 # Generated test evidence and reports
 模型测评结果/
+Linux测试结果/
 
 # Keep private source documents out of the repository by default
 *.doc
 *.docx
+/*.txt
+/*.xlsx
+/*.rar
+/local-backup/
 
 # Editor and OS files
 .idea/

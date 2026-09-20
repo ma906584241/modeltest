@@ -1,0 +1,1815 @@
+- generic [active] [ref=e1]:
+  - heading "deepseek14b模型测试报告" [level=1] [ref=e2]
+  - paragraph [ref=e3]:
+    - strong [ref=e4]: 状态说明：
+    - text: EXPECTED_TRUNCATED 表示该用例允许触达 token 上限；TRUNCATED 表示非预期截断，应提高 max_tokens 后复测。报告中的‘证据’链接可打开逐请求结果和输出。
+  - paragraph [ref=e5]: "{'OK': 87, 'EXPECTED_TRUNCATED': 1, 'TRUNCATED': 2, 'ERROR': 0, 'TIMEOUT': 0, 'SKIPPED': 1}"
+  - paragraph [ref=e6]: REVIEW＝待人工评价；PASS仅代表指定规则通过。SKIPPED不计为模型失败。非流式首输出/首正文时间留空，不能测量TTFT。未标记的推理可能混在正文中。首输出包含推理；首正文根据可识别think标签或reasoning字段区分。字符按Unicode字符计数，非token。API结果不可直接与历史页面端到端耗时等同比较。
+  - heading "全量测试范围" [level=2] [ref=e7]
+  - paragraph [ref=e8]: 以下为本次全量测试工具覆盖的模块、测试目标、执行档位和当前报告已记录数量。
+  - paragraph [ref=e9]:
+    - strong [ref=e10]: 边界诊断：
+    - text: 上下文边界档位均未满足稳定判定（需检查请求状态和 usage）。并发边界已测试档位：1。
+  - table [ref=e11]:
+    - rowgroup [ref=e12]:
+      - row [ref=e13]:
+        - columnheader "测试模块" [ref=e14]
+        - columnheader "具体测试内容" [ref=e15]
+        - columnheader "执行档位/重复次数" [ref=e16]
+        - columnheader "已记录数量" [ref=e17]
+    - rowgroup [ref=e18]:
+      - row [ref=e19]:
+        - cell "接口连通性" [ref=e20]
+        - cell "发送快速排序请求，确认模型名称、网络连接和接口响应格式可用。" [ref=e21]
+        - cell "连通性探测；每个选中模型 1 次" [ref=e22]
+        - cell "1" [ref=e23]
+      - row [ref=e24]:
+        - cell "基础功能" [ref=e25]
+        - cell "旅游攻略、连续编号、重复输出、长文发言稿、制度写作、代码生成、Vue 方法、Python 快速排序和诗歌翻译；检查结构、顺序、长度、代码/文本完整性。" [ref=e26]
+        - cell "固定功能用例" [ref=e27]
+        - cell "10" [ref=e28]
+      - row [ref=e29]:
+        - cell "文档处理" [ref=e30]
+        - cell "对测试文档执行问答、摘要/大纲、矛盾与风险审核、全文翻译；另含资料缺失跳过验证。" [ref=e31]
+        - cell "每份文档按问答/摘要/审核/翻译分类" [ref=e32]
+        - cell "29" [ref=e33]
+      - row [ref=e34]:
+        - cell "文档差异" [ref=e35]
+        - cell "比较两份制度文本，识别新增、删除、修改内容并引用原文，检查差异分析能力。" [ref=e36]
+        - cell "6 组受控差异用例" [ref=e37]
+        - cell "6" [ref=e38]
+      - row [ref=e39]:
+        - cell "输出容量边界" [ref=e40]
+        - cell "逐级提高 max_tokens，检查自然结束、finish_reason、输出截断、实际输出字符和耗时。" [ref=e41]
+        - cell "容量档位 8192 / 16384 / 32768，每档 3 次" [ref=e42]
+        - cell "9" [ref=e43]
+      - row [ref=e44]:
+        - cell "输入长度边界" [ref=e45]
+        - cell "逐级提高输入 token，检查实际 prompt_tokens、服务端最大输入限制和重复请求稳定性。" [ref=e46]
+        - cell "输入档位 8192 / 16384 / 24576 / 32768，每档 3 次" [ref=e47]
+        - cell "12" [ref=e48]
+      - row [ref=e49]:
+        - cell "上下文长度边界" [ref=e50]
+        - cell "组合输入 token 与输出 token，检查总 token 是否超过 max_seq_len，以及服务端上下文错误。" [ref=e51]
+        - cell "16384+4096、24576+4096、32768+4096、32768+16384，每组 3 次" [ref=e52]
+        - cell "12" [ref=e53]
+      - row [ref=e54]:
+        - cell "文档压力测试" [ref=e55]
+        - cell "在问答、摘要、审核、差异四类任务上进行并发请求，统计成功率、P50、P95、吞吐和失败原因。" [ref=e56]
+        - cell "并发 [1, 3, 6]；每档 3 轮" [ref=e57]
+        - cell "12" [ref=e58]
+  - heading "稳定边界判定" [level=2] [ref=e59]
+  - paragraph [ref=e60]: 以下“最大稳定”表示本次测试档位的所有重复请求成功；它不是服务配置理论上限。输出上限只有在 finish_reason=length 且 completion_tokens 接近 requested_max_tokens 时才算触达，finish_reason=stop 表示模型提前结束。
+  - table [ref=e61]:
+    - rowgroup [ref=e62]:
+      - row [ref=e63]:
+        - columnheader "指标" [ref=e64]
+        - columnheader "本次最大稳定值" [ref=e65]
+        - columnheader "判定依据" [ref=e66]
+    - rowgroup [ref=e67]:
+      - row [ref=e68]:
+        - cell "最大稳定输入 token" [ref=e69]
+        - cell "32768" [ref=e70]
+        - cell "输入边界档位重复请求均成功" [ref=e71]
+      - row [ref=e72]:
+        - cell "最大稳定输出 token" [ref=e73]
+        - cell "未测出" [ref=e74]
+        - cell "输出容量档位重复请求均成功；length 触达次数 0" [ref=e75]
+      - row [ref=e76]:
+        - cell "最大稳定上下文长度" [ref=e77]
+        - cell "37167" [ref=e78]
+        - cell "输入 token + 输出 token，且未超过 maxSeqLen" [ref=e79]
+      - row [ref=e80]:
+        - cell "最大稳定并发数" [ref=e81]
+        - cell "1" [ref=e82]
+        - cell "该并发档位所有批次请求均成功" [ref=e83]
+  - generic [ref=e84]:
+    - heading "失败原因诊断与优化建议" [level=2] [ref=e85]
+    - paragraph [ref=e86]:
+      - strong [ref=e87]: 总体结论：
+      - text: 本次 5 项自动质量 FAIL 没有证据表明由 NPU 负载过高导致。其中 2 项主要是输出额度不足，1 项同时包含额度不足和模型指令遵循问题，1 项是模型主动提前结束，另 1 项（repeat）属于自动校验误报，不应计作模型性能失败。
+    - paragraph [ref=e88]:
+      - strong [ref=e89]: 硬件证据边界：
+      - text: 本次共 91 个实际请求，HTTP 错误/超时为 0；失败请求生成速度约为 20.6-21.8 token/s，未出现明显异常掉速。现有 npu_monitor.log 只记录到 20:37:53，而这些失败请求完成于 20:43:23-21:06:31，因此不能用该日志证明失败时 NPU 过载。日志覆盖时段内设备健康状态为 OK，AI Core 约 39%-42%。
+    - paragraph [ref=e90]:
+      - strong [ref=e91]: 归因标签：
+      - text: CONFIG_LIMIT＝请求或服务端配置限制；MODEL_BEHAVIOR＝模型主动结束或未遵循指令；VALIDATOR_ERROR＝自动校验规则与测试目标不一致。
+    - table [ref=e92]:
+      - rowgroup [ref=e93]:
+        - row [ref=e94]:
+          - columnheader "失败用例" [ref=e95]
+          - columnheader "本次证据" [ref=e96]
+          - columnheader "直接原因" [ref=e97]
+          - columnheader "归因" [ref=e98]
+          - columnheader "优化方法" [ref=e99]
+          - columnheader "复测通过标准" [ref=e100]
+      - rowgroup [ref=e101]:
+        - row [ref=e102]:
+          - cell [ref=e103]:
+            - strong [ref=e104]: count_1000
+          - cell "HTTP 200；finish_reason=length；completion_tokens 4096/4096；仅完整输出 0-622，共识别 623 项。" [ref=e105]
+          - cell "请求达到 4096 token 输出上限后被截断，不是接口错误。" [ref=e106]
+          - cell "CONFIG_LIMIT（输出额度不足）" [ref=e107]
+          - cell "该用例单独设置 max_tokens=8192，temperature=0、do_sample=false；保留连续性严格校验。" [ref=e108]
+          - cell "连续输出 0-1000 共 1001 项，无缺号、重号和省略号，且 finish_reason=stop。" [ref=e109]
+        - row [ref=e110]:
+          - cell [ref=e111]:
+            - strong [ref=e112]: count_5000
+          - cell "HTTP 200；finish_reason=stop；completion_tokens 546/4096；实际输出为 0、1、2、...、5000，仅识别 4 项。" [ref=e113]
+          - cell "4096 token 无法容纳 5001 项；模型同时主动使用省略号跳过正文。" [ref=e114]
+          - cell "CONFIG_LIMIT + MODEL_BEHAVIOR（额度不足且未严格遵循指令）" [ref=e115]
+          - cell "优先拆成每段 500 项（每段 max_tokens=4096）或每段 1000 项（每段 max_tokens=8192），逐段校验后合并；不建议单次硬生成。" [ref=e116]
+          - cell "合并后包含 0-5000 共 5001 项，段间连续，无省略号、缺号和重号。" [ref=e117]
+        - row [ref=e118]:
+          - cell [ref=e119]:
+            - strong [ref=e120]: repeat
+          - cell "状态为 EXPECTED_TRUNCATED；completion_tokens 4096/4096；已重复“测试输出”约 1261 次，末尾因截断只剩词语前缀。" [ref=e121]
+          - cell "达到输出上限本来就是用例目标；当前严格正则不接受换行和末尾截断前缀，导致质量误报。" [ref=e122]
+          - cell "VALIDATOR_ERROR（校验规则问题，不是模型性能失败）" [ref=e123]
+          - cell "校验前移除空白，允许最后一个“测试输出”为合法前缀；纯度合格且 finish_reason=length 时判 PASS + EXPECTED_TRUNCATED。" [ref=e124]
+          - cell "除空白及最后一个合法截断前缀外无其他内容，并稳定触达请求 token 上限。" [ref=e125]
+        - row [ref=e126]:
+          - cell [ref=e127]:
+            - strong [ref=e128]: speech
+          - cell "HTTP 200；finish_reason=stop；completion_tokens 1307/4096；正文仅 1171 个汉字，且开头主动表示无法直接完成 4000 字。" [ref=e129]
+          - cell "模型远未触达 token 上限便主动结束，属于长文指令遵循和一次性生成能力不足。" [ref=e130]
+          - cell "MODEL_BEHAVIOR（模型主动提前结束）" [ref=e131]
+          - cell "先用 max_tokens=8192、明确要求至少 4500 汉字及 8 个章节；若后端支持可测试 min_new_tokens。业务保障场景增加字数校验和自动续写。" [ref=e132]
+          - cell "单次正文至少 4000 个汉字，8 个章节完整，无拒绝语、提纲替代和明显重复灌水。" [ref=e133]
+        - row [ref=e134]:
+          - cell [ref=e135]:
+            - strong [ref=e136]: doc_2_translate
+          - cell "HTTP 200；输入 9741 token；输出 4096/4096 token；总量 13837，低于 max_seq_len=65536；译文在句中截断且残留约 430 个中文字符。" [ref=e137]
+          - cell "直接失败由 4096 token 输出上限造成；中英文混杂同时反映翻译质量不足。现有证据不支持归因为 NPU 过载。" [ref=e138]
+          - cell "CONFIG_LIMIT + MODEL_BEHAVIOR（输出额度与翻译质量）" [ref=e139]
+          - cell "先以 max_tokens=8192/16384 做单变量复测；生产方案按章节或 3000-5000 中文字符分块翻译，并校验章节编号和中文残留。" [ref=e140]
+          - cell "finish_reason=stop，所有章节和条款编号齐全，以完整句结束，非专名中文残留为 0。" [ref=e141]
+  - heading "完整测试明细" [level=2] [ref=e142]
+  - table [ref=e143]:
+    - rowgroup [ref=e144]:
+      - row [ref=e145]:
+        - columnheader "模型" [ref=e146]
+        - columnheader "测试用例（中文说明）" [ref=e147]
+        - columnheader "内部编号" [ref=e148]
+        - columnheader "执行状态" [ref=e149]
+        - columnheader "自动检查" [ref=e150]
+        - columnheader "首输出秒" [ref=e151]
+        - columnheader "首正文秒" [ref=e152]
+        - columnheader "总耗时秒" [ref=e153]
+        - columnheader "正文字符" [ref=e154]
+        - columnheader "正文字符/总秒" [ref=e155]
+        - columnheader "失败/跳过原因与优化建议" [ref=e156]
+        - columnheader "证据" [ref=e157]
+    - rowgroup [ref=e158]:
+      - row [ref=e159]:
+        - cell "deepseek14b" [ref=e160]
+        - cell "接口连通性验证：发送快速排序提示，检查 deepseek14b 是否返回有效非流式响应" [ref=e161]
+        - cell "connectivity" [ref=e162]
+        - cell "OK" [ref=e163]
+        - cell "REVIEW" [ref=e164]
+        - cell "—" [ref=e165]
+        - cell "—" [ref=e166]
+        - cell "143.037" [ref=e167]
+        - cell "725" [ref=e168]
+        - cell "5.069" [ref=e169]
+        - cell [ref=e170]
+        - cell [ref=e171]:
+          - link "输入" [ref=e172] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/connectivity.result.json
+          - text: ·
+          - link "输出" [ref=e173] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/connectivity.answer.txt
+      - row [ref=e174]:
+        - cell "deepseek14b" [ref=e175]
+        - cell "AI 对话：生成上海三天两夜旅游攻略，检查结构完整性和长文本输出能力" [ref=e176]
+        - cell "chat_travel" [ref=e177]
+        - cell "OK" [ref=e178]
+        - cell "REVIEW" [ref=e179]
+        - cell "—" [ref=e180]
+        - cell "—" [ref=e181]
+        - cell "71.021" [ref=e182]
+        - cell "1828" [ref=e183]
+        - cell "25.739" [ref=e184]
+        - cell [ref=e185]
+        - cell [ref=e186]:
+          - link "输入" [ref=e187] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/chat_travel.result.json
+          - text: ·
+          - link "输出" [ref=e188] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/chat_travel.answer.txt
+      - row [ref=e189]:
+        - cell "deepseek14b" [ref=e190]
+        - cell "长输出：按 0 到 1000 连续输出“测试”，检查序号完整性、连续性和截断情况" [ref=e191]
+        - cell "count_1000" [ref=e192]
+        - cell "TRUNCATED" [ref=e193]
+        - cell "FAIL" [ref=e194]
+        - cell "—" [ref=e195]
+        - cell "—" [ref=e196]
+        - cell "188.957" [ref=e197]
+        - cell "5499" [ref=e198]
+        - cell "29.102" [ref=e199]
+        - cell "直接原因：请求达到 4096 token 输出上限后被截断，不是接口错误。；归因：CONFIG_LIMIT（输出额度不足）；优化：该用例单独设置 max_tokens=8192，temperature=0、do_sample=false；保留连续性严格校验。；复测标准：连续输出 0-1000 共 1001 项，无缺号、重号和省略号，且 finish_reason=stop。" [ref=e200]
+        - cell [ref=e201]:
+          - link "输入" [ref=e202] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/count_1000.result.json
+          - text: ·
+          - link "输出" [ref=e203] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/count_1000.answer.txt
+      - row [ref=e204]:
+        - cell "deepseek14b" [ref=e205]
+        - cell "长输出：按 0 到 5000 连续输出“测试”，检查大规模连续序号生成能力" [ref=e206]
+        - cell "count_5000" [ref=e207]
+        - cell "OK" [ref=e208]
+        - cell "FAIL" [ref=e209]
+        - cell "—" [ref=e210]
+        - cell "—" [ref=e211]
+        - cell "25.017" [ref=e212]
+        - cell "34" [ref=e213]
+        - cell "1.359" [ref=e214]
+        - cell "直接原因：4096 token 无法容纳 5001 项；模型同时主动使用省略号跳过正文。；归因：CONFIG_LIMIT + MODEL_BEHAVIOR（额度不足且未严格遵循指令）；优化：优先拆成每段 500 项（每段 max_tokens=4096）或每段 1000 项（每段 max_tokens=8192），逐段校验后合并；不建议单次硬生成。；复测标准：合并后包含 0-5000 共 5001 项，段间连续，无省略号、缺号和重号。" [ref=e215]
+        - cell [ref=e216]:
+          - link "输入" [ref=e217] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/count_5000.result.json
+          - text: ·
+          - link "输出" [ref=e218] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/count_5000.answer.txt
+      - row [ref=e219]:
+        - cell "deepseek14b" [ref=e220]
+        - cell "长输出：重复输出“测试输出”直至达到生成上限，检查纯重复内容和结束状态" [ref=e221]
+        - cell "repeat" [ref=e222]
+        - cell "EXPECTED_TRUNCATED" [ref=e223]
+        - cell "FAIL" [ref=e224]
+        - cell "—" [ref=e225]
+        - cell "—" [ref=e226]
+        - cell "189.145" [ref=e227]
+        - cell "7135" [ref=e228]
+        - cell "37.722" [ref=e229]
+        - cell "直接原因：达到输出上限本来就是用例目标；当前严格正则不接受换行和末尾截断前缀，导致质量误报。；归因：VALIDATOR_ERROR（校验规则问题，不是模型性能失败）；优化：校验前移除空白，允许最后一个“测试输出”为合法前缀；纯度合格且 finish_reason=length 时判 PASS + EXPECTED_TRUNCATED。；复测标准：除空白及最后一个合法截断前缀外无其他内容，并稳定触达请求 token 上限。" [ref=e230]
+        - cell [ref=e231]:
+          - link "输入" [ref=e232] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/repeat.result.json
+          - text: ·
+          - link "输出" [ref=e233] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/repeat.answer.txt
+      - row [ref=e234]:
+        - cell "deepseek14b" [ref=e235]
+        - cell "长文写作：生成约 4000 字的 9.3 发言稿，检查目标字数和文章结构" [ref=e236]
+        - cell "speech" [ref=e237]
+        - cell "OK" [ref=e238]
+        - cell "FAIL" [ref=e239]
+        - cell "—" [ref=e240]
+        - cell "—" [ref=e241]
+        - cell "60.208" [ref=e242]
+        - cell "1390" [ref=e243]
+        - cell "23.087" [ref=e244]
+        - cell "直接原因：模型远未触达 token 上限便主动结束，属于长文指令遵循和一次性生成能力不足。；归因：MODEL_BEHAVIOR（模型主动提前结束）；优化：先用 max_tokens=8192、明确要求至少 4500 汉字及 8 个章节；若后端支持可测试 min_new_tokens。业务保障场景增加字数校验和自动续写。；复测标准：单次正文至少 4000 个汉字，8 个章节完整，无拒绝语、提纲替代和明显重复灌水。" [ref=e245]
+        - cell [ref=e246]:
+          - link "输入" [ref=e247] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/speech.result.json
+          - text: ·
+          - link "输出" [ref=e248] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/speech.answer.txt
+      - row [ref=e249]:
+        - cell "deepseek14b" [ref=e250]
+        - cell "制度写作：生成 IT 基础架构部门制度，覆盖顶层制度、SOP、日常工作、注意事项和红线" [ref=e251]
+        - cell "it_policy" [ref=e252]
+        - cell "OK" [ref=e253]
+        - cell "REVIEW" [ref=e254]
+        - cell "—" [ref=e255]
+        - cell "—" [ref=e256]
+        - cell "88.629" [ref=e257]
+        - cell "2433" [ref=e258]
+        - cell "27.452" [ref=e259]
+        - cell [ref=e260]
+        - cell [ref=e261]:
+          - link "输入" [ref=e262] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/it_policy.result.json
+          - text: ·
+          - link "输出" [ref=e263] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/it_policy.answer.txt
+      - row [ref=e264]:
+        - cell "deepseek14b" [ref=e265]
+        - cell "代码生成：编写 JavaScript 浅拷贝示例，检查代码可用性、说明和边界条件" [ref=e266]
+        - cell "js_copy" [ref=e267]
+        - cell "OK" [ref=e268]
+        - cell "REVIEW" [ref=e269]
+        - cell "—" [ref=e270]
+        - cell "—" [ref=e271]
+        - cell "107.635" [ref=e272]
+        - cell "700" [ref=e273]
+        - cell "6.503" [ref=e274]
+        - cell [ref=e275]
+        - cell [ref=e276]:
+          - link "输入" [ref=e277] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/js_copy.result.json
+          - text: ·
+          - link "输出" [ref=e278] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/js_copy.answer.txt
+      - row [ref=e279]:
+        - cell "deepseek14b" [ref=e280]
+        - cell "代码生成：列举 Vue3 子组件调用父组件方法的三种方式，并比较实现方式和优缺点" [ref=e281]
+        - cell "vue_methods" [ref=e282]
+        - cell "OK" [ref=e283]
+        - cell "REVIEW" [ref=e284]
+        - cell "—" [ref=e285]
+        - cell "—" [ref=e286]
+        - cell "69.259" [ref=e287]
+        - cell "2177" [ref=e288]
+        - cell "31.433" [ref=e289]
+        - cell [ref=e290]
+        - cell [ref=e291]:
+          - link "输入" [ref=e292] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/vue_methods.result.json
+          - text: ·
+          - link "输出" [ref=e293] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/vue_methods.answer.txt
+      - row [ref=e294]:
+        - cell "deepseek14b" [ref=e295]
+        - cell "代码生成：编写 Python 快速排序代码，检查代码生成和基本解释能力" [ref=e296]
+        - cell "python_sort" [ref=e297]
+        - cell "OK" [ref=e298]
+        - cell "REVIEW" [ref=e299]
+        - cell "—" [ref=e300]
+        - cell "—" [ref=e301]
+        - cell "146.029" [ref=e302]
+        - cell "933" [ref=e303]
+        - cell "6.389" [ref=e304]
+        - cell [ref=e305]
+        - cell [ref=e306]:
+          - link "输入" [ref=e307] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/python_sort.result.json
+          - text: ·
+          - link "输出" [ref=e308] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/python_sort.answer.txt
+      - row [ref=e309]:
+        - cell "deepseek14b" [ref=e310]
+        - cell "翻译：将英文诗歌翻译成中文，检查语义、段落和诗意保持情况" [ref=e311]
+        - cell "poem" [ref=e312]
+        - cell "OK" [ref=e313]
+        - cell "REVIEW" [ref=e314]
+        - cell "—" [ref=e315]
+        - cell "—" [ref=e316]
+        - cell "57.685" [ref=e317]
+        - cell "1034" [ref=e318]
+        - cell "17.925" [ref=e319]
+        - cell [ref=e320]
+        - cell [ref=e321]:
+          - link "输入" [ref=e322] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/poem.result.json
+          - text: ·
+          - link "输出" [ref=e323] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/poem.answer.txt
+      - row [ref=e324]:
+        - cell "deepseek14b" [ref=e325]
+        - cell "文档对话：回答文档内容问题：公司管理规章制度细则 - 约12000字.docx（输入约 14934 字符）" [ref=e326]
+        - cell "doc_1_qa" [ref=e327]
+        - cell "OK" [ref=e328]
+        - cell "REVIEW" [ref=e329]
+        - cell "—" [ref=e330]
+        - cell "—" [ref=e331]
+        - cell "40.421" [ref=e332]
+        - cell "611" [ref=e333]
+        - cell "15.116" [ref=e334]
+        - cell [ref=e335]
+        - cell [ref=e336]:
+          - link "输入" [ref=e337] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_1_qa.result.json
+          - text: ·
+          - link "输出" [ref=e338] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_1_qa.answer.txt
+      - row [ref=e339]:
+        - cell "deepseek14b" [ref=e340]
+        - cell "文档阅读：提取全文总结、摘要和大纲：公司管理规章制度细则 - 约12000字.docx（输入约 14934 字符）" [ref=e341]
+        - cell "doc_1_summary" [ref=e342]
+        - cell "OK" [ref=e343]
+        - cell "REVIEW" [ref=e344]
+        - cell "—" [ref=e345]
+        - cell "—" [ref=e346]
+        - cell "72.171" [ref=e347]
+        - cell "1615" [ref=e348]
+        - cell "22.377" [ref=e349]
+        - cell [ref=e350]
+        - cell [ref=e351]:
+          - link "输入" [ref=e352] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_1_summary.result.json
+          - text: ·
+          - link "输出" [ref=e353] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_1_summary.answer.txt
+      - row [ref=e354]:
+        - cell "deepseek14b" [ref=e355]
+        - cell "文档审核：识别内部矛盾、错别字、表述问题和执行风险：公司管理规章制度细则 - 约12000字.docx（输入约 14934 字符）" [ref=e356]
+        - cell "doc_1_review" [ref=e357]
+        - cell "OK" [ref=e358]
+        - cell "REVIEW" [ref=e359]
+        - cell "—" [ref=e360]
+        - cell "—" [ref=e361]
+        - cell "96.338" [ref=e362]
+        - cell "2368" [ref=e363]
+        - cell "24.58" [ref=e364]
+        - cell [ref=e365]
+        - cell [ref=e366]:
+          - link "输入" [ref=e367] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_1_review.result.json
+          - text: ·
+          - link "输出" [ref=e368] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_1_review.answer.txt
+      - row [ref=e369]:
+        - cell "deepseek14b" [ref=e370]
+        - cell "文档翻译：将全文翻译为英文并保留层级和条款编号：公司管理规章制度细则 - 约12000字.docx（输入约 14934 字符）" [ref=e371]
+        - cell "doc_1_translate" [ref=e372]
+        - cell "OK" [ref=e373]
+        - cell "REVIEW" [ref=e374]
+        - cell "—" [ref=e375]
+        - cell "—" [ref=e376]
+        - cell "75.016" [ref=e377]
+        - cell "5491" [ref=e378]
+        - cell "73.198" [ref=e379]
+        - cell [ref=e380]
+        - cell [ref=e381]:
+          - link "输入" [ref=e382] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_1_translate.result.json
+          - text: ·
+          - link "输出" [ref=e383] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_1_translate.answer.txt
+      - row [ref=e384]:
+        - cell "deepseek14b" [ref=e385]
+        - cell "文档对话：回答文档内容问题：公司管理规章制度细则 - 约14000字.docx（输入约 14932 字符）" [ref=e386]
+        - cell "doc_2_qa" [ref=e387]
+        - cell "OK" [ref=e388]
+        - cell "REVIEW" [ref=e389]
+        - cell "—" [ref=e390]
+        - cell "—" [ref=e391]
+        - cell "27.154" [ref=e392]
+        - cell "325" [ref=e393]
+        - cell "11.969" [ref=e394]
+        - cell [ref=e395]
+        - cell [ref=e396]:
+          - link "输入" [ref=e397] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_2_qa.result.json
+          - text: ·
+          - link "输出" [ref=e398] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_2_qa.answer.txt
+      - row [ref=e399]:
+        - cell "deepseek14b" [ref=e400]
+        - cell "文档阅读：提取全文总结、摘要和大纲：公司管理规章制度细则 - 约14000字.docx（输入约 14932 字符）" [ref=e401]
+        - cell "doc_2_summary" [ref=e402]
+        - cell "OK" [ref=e403]
+        - cell "REVIEW" [ref=e404]
+        - cell "—" [ref=e405]
+        - cell "—" [ref=e406]
+        - cell "60.105" [ref=e407]
+        - cell "1406" [ref=e408]
+        - cell "23.392" [ref=e409]
+        - cell [ref=e410]
+        - cell [ref=e411]:
+          - link "输入" [ref=e412] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_2_summary.result.json
+          - text: ·
+          - link "输出" [ref=e413] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_2_summary.answer.txt
+      - row [ref=e414]:
+        - cell "deepseek14b" [ref=e415]
+        - cell "文档审核：识别内部矛盾、错别字、表述问题和执行风险：公司管理规章制度细则 - 约14000字.docx（输入约 14932 字符）" [ref=e416]
+        - cell "doc_2_review" [ref=e417]
+        - cell "OK" [ref=e418]
+        - cell "REVIEW" [ref=e419]
+        - cell "—" [ref=e420]
+        - cell "—" [ref=e421]
+        - cell "73.468" [ref=e422]
+        - cell "1830" [ref=e423]
+        - cell "24.909" [ref=e424]
+        - cell [ref=e425]
+        - cell [ref=e426]:
+          - link "输入" [ref=e427] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_2_review.result.json
+          - text: ·
+          - link "输出" [ref=e428] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_2_review.answer.txt
+      - row [ref=e429]:
+        - cell "deepseek14b" [ref=e430]
+        - cell "文档翻译：将全文翻译为英文并保留层级和条款编号：公司管理规章制度细则 - 约14000字.docx（输入约 14932 字符）" [ref=e431]
+        - cell "doc_2_translate" [ref=e432]
+        - cell "TRUNCATED" [ref=e433]
+        - cell "FAIL" [ref=e434]
+        - cell "—" [ref=e435]
+        - cell "—" [ref=e436]
+        - cell "198.786" [ref=e437]
+        - cell "16918" [ref=e438]
+        - cell "85.107" [ref=e439]
+        - cell "直接原因：直接失败由 4096 token 输出上限造成；中英文混杂同时反映翻译质量不足。现有证据不支持归因为 NPU 过载。；归因：CONFIG_LIMIT + MODEL_BEHAVIOR（输出额度与翻译质量）；优化：先以 max_tokens=8192/16384 做单变量复测；生产方案按章节或 3000-5000 中文字符分块翻译，并校验章节编号和中文残留。；复测标准：finish_reason=stop，所有章节和条款编号齐全，以完整句结束，非专名中文残留为 0。" [ref=e440]
+        - cell [ref=e441]:
+          - link "输入" [ref=e442] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_2_translate.result.json
+          - text: ·
+          - link "输出" [ref=e443] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_2_translate.answer.txt
+      - row [ref=e444]:
+        - cell "deepseek14b" [ref=e445]
+        - cell "文档对话：回答文档内容问题：公司考勤管理制度（大概3000字）.docx（输入约 3224 字符）" [ref=e446]
+        - cell "doc_3_qa" [ref=e447]
+        - cell "OK" [ref=e448]
+        - cell "REVIEW" [ref=e449]
+        - cell "—" [ref=e450]
+        - cell "—" [ref=e451]
+        - cell "49.69" [ref=e452]
+        - cell "939" [ref=e453]
+        - cell "18.897" [ref=e454]
+        - cell [ref=e455]
+        - cell [ref=e456]:
+          - link "输入" [ref=e457] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_3_qa.result.json
+          - text: ·
+          - link "输出" [ref=e458] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_3_qa.answer.txt
+      - row [ref=e459]:
+        - cell "deepseek14b" [ref=e460]
+        - cell "文档阅读：提取全文总结、摘要和大纲：公司考勤管理制度（大概3000字）.docx（输入约 3224 字符）" [ref=e461]
+        - cell "doc_3_summary" [ref=e462]
+        - cell "OK" [ref=e463]
+        - cell "REVIEW" [ref=e464]
+        - cell "—" [ref=e465]
+        - cell "—" [ref=e466]
+        - cell "93.863" [ref=e467]
+        - cell "2626" [ref=e468]
+        - cell "27.977" [ref=e469]
+        - cell [ref=e470]
+        - cell [ref=e471]:
+          - link "输入" [ref=e472] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_3_summary.result.json
+          - text: ·
+          - link "输出" [ref=e473] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_3_summary.answer.txt
+      - row [ref=e474]:
+        - cell "deepseek14b" [ref=e475]
+        - cell "文档审核：识别内部矛盾、错别字、表述问题和执行风险：公司考勤管理制度（大概3000字）.docx（输入约 3224 字符）" [ref=e476]
+        - cell "doc_3_review" [ref=e477]
+        - cell "OK" [ref=e478]
+        - cell "REVIEW" [ref=e479]
+        - cell "—" [ref=e480]
+        - cell "—" [ref=e481]
+        - cell "75.307" [ref=e482]
+        - cell "1374" [ref=e483]
+        - cell "18.245" [ref=e484]
+        - cell [ref=e485]
+        - cell [ref=e486]:
+          - link "输入" [ref=e487] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_3_review.result.json
+          - text: ·
+          - link "输出" [ref=e488] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_3_review.answer.txt
+      - row [ref=e489]:
+        - cell "deepseek14b" [ref=e490]
+        - cell "文档翻译：将全文翻译为英文并保留层级和条款编号：公司考勤管理制度（大概3000字）.docx（输入约 3224 字符）" [ref=e491]
+        - cell "doc_3_translate" [ref=e492]
+        - cell "OK" [ref=e493]
+        - cell "REVIEW" [ref=e494]
+        - cell "—" [ref=e495]
+        - cell "—" [ref=e496]
+        - cell "160.236" [ref=e497]
+        - cell "14426" [ref=e498]
+        - cell "90.03" [ref=e499]
+        - cell [ref=e500]
+        - cell [ref=e501]:
+          - link "输入" [ref=e502] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_3_translate.result.json
+          - text: ·
+          - link "输出" [ref=e503] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_3_translate.answer.txt
+      - row [ref=e504]:
+        - cell "deepseek14b" [ref=e505]
+        - cell "文档对话：回答文档内容问题：费用报销管理制度（大概1000字）.docx（输入约 1011 字符）" [ref=e506]
+        - cell "doc_4_qa" [ref=e507]
+        - cell "OK" [ref=e508]
+        - cell "REVIEW" [ref=e509]
+        - cell "—" [ref=e510]
+        - cell "—" [ref=e511]
+        - cell "38.389" [ref=e512]
+        - cell "506" [ref=e513]
+        - cell "13.181" [ref=e514]
+        - cell [ref=e515]
+        - cell [ref=e516]:
+          - link "输入" [ref=e517] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_4_qa.result.json
+          - text: ·
+          - link "输出" [ref=e518] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_4_qa.answer.txt
+      - row [ref=e519]:
+        - cell "deepseek14b" [ref=e520]
+        - cell "文档阅读：提取全文总结、摘要和大纲：费用报销管理制度（大概1000字）.docx（输入约 1011 字符）" [ref=e521]
+        - cell "doc_4_summary" [ref=e522]
+        - cell "OK" [ref=e523]
+        - cell "REVIEW" [ref=e524]
+        - cell "—" [ref=e525]
+        - cell "—" [ref=e526]
+        - cell "67.525" [ref=e527]
+        - cell "1780" [ref=e528]
+        - cell "26.361" [ref=e529]
+        - cell [ref=e530]
+        - cell [ref=e531]:
+          - link "输入" [ref=e532] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_4_summary.result.json
+          - text: ·
+          - link "输出" [ref=e533] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_4_summary.answer.txt
+      - row [ref=e534]:
+        - cell "deepseek14b" [ref=e535]
+        - cell "文档审核：识别内部矛盾、错别字、表述问题和执行风险：费用报销管理制度（大概1000字）.docx（输入约 1011 字符）" [ref=e536]
+        - cell "doc_4_review" [ref=e537]
+        - cell "OK" [ref=e538]
+        - cell "REVIEW" [ref=e539]
+        - cell "—" [ref=e540]
+        - cell "—" [ref=e541]
+        - cell "72.384" [ref=e542]
+        - cell "1706" [ref=e543]
+        - cell "23.569" [ref=e544]
+        - cell [ref=e545]
+        - cell [ref=e546]:
+          - link "输入" [ref=e547] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_4_review.result.json
+          - text: ·
+          - link "输出" [ref=e548] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_4_review.answer.txt
+      - row [ref=e549]:
+        - cell "deepseek14b" [ref=e550]
+        - cell "文档翻译：将全文翻译为英文并保留层级和条款编号：费用报销管理制度（大概1000字）.docx（输入约 1011 字符）" [ref=e551]
+        - cell "doc_4_translate" [ref=e552]
+        - cell "OK" [ref=e553]
+        - cell "REVIEW" [ref=e554]
+        - cell "—" [ref=e555]
+        - cell "—" [ref=e556]
+        - cell "64.783" [ref=e557]
+        - cell "4861" [ref=e558]
+        - cell "75.035" [ref=e559]
+        - cell [ref=e560]
+        - cell [ref=e561]:
+          - link "输入" [ref=e562] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_4_translate.result.json
+          - text: ·
+          - link "输出" [ref=e563] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_4_translate.answer.txt
+      - row [ref=e564]:
+        - cell "deepseek14b" [ref=e565]
+        - cell "文档对话：回答文档内容问题：（大概15000字）公司管理规章制度细则.docx（输入约 15924 字符）" [ref=e566]
+        - cell "doc_5_qa" [ref=e567]
+        - cell "OK" [ref=e568]
+        - cell "REVIEW" [ref=e569]
+        - cell "—" [ref=e570]
+        - cell "—" [ref=e571]
+        - cell "38.68" [ref=e572]
+        - cell "506" [ref=e573]
+        - cell "13.082" [ref=e574]
+        - cell [ref=e575]
+        - cell [ref=e576]:
+          - link "输入" [ref=e577] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_5_qa.result.json
+          - text: ·
+          - link "输出" [ref=e578] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_5_qa.answer.txt
+      - row [ref=e579]:
+        - cell "deepseek14b" [ref=e580]
+        - cell "文档阅读：提取全文总结、摘要和大纲：（大概15000字）公司管理规章制度细则.docx（输入约 15924 字符）" [ref=e581]
+        - cell "doc_5_summary" [ref=e582]
+        - cell "OK" [ref=e583]
+        - cell "REVIEW" [ref=e584]
+        - cell "—" [ref=e585]
+        - cell "—" [ref=e586]
+        - cell "67.638" [ref=e587]
+        - cell "1486" [ref=e588]
+        - cell "21.97" [ref=e589]
+        - cell [ref=e590]
+        - cell [ref=e591]:
+          - link "输入" [ref=e592] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_5_summary.result.json
+          - text: ·
+          - link "输出" [ref=e593] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_5_summary.answer.txt
+      - row [ref=e594]:
+        - cell "deepseek14b" [ref=e595]
+        - cell "文档审核：识别内部矛盾、错别字、表述问题和执行风险：（大概15000字）公司管理规章制度细则.docx（输入约 15924 字符）" [ref=e596]
+        - cell "doc_5_review" [ref=e597]
+        - cell "OK" [ref=e598]
+        - cell "REVIEW" [ref=e599]
+        - cell "—" [ref=e600]
+        - cell "—" [ref=e601]
+        - cell "83.793" [ref=e602]
+        - cell "2109" [ref=e603]
+        - cell "25.169" [ref=e604]
+        - cell [ref=e605]
+        - cell [ref=e606]:
+          - link "输入" [ref=e607] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_5_review.result.json
+          - text: ·
+          - link "输出" [ref=e608] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_5_review.answer.txt
+      - row [ref=e609]:
+        - cell "deepseek14b" [ref=e610]
+        - cell "文档翻译：将全文翻译为英文并保留层级和条款编号：（大概15000字）公司管理规章制度细则.docx（输入约 15924 字符）" [ref=e611]
+        - cell "doc_5_translate" [ref=e612]
+        - cell "OK" [ref=e613]
+        - cell "REVIEW" [ref=e614]
+        - cell "—" [ref=e615]
+        - cell "—" [ref=e616]
+        - cell "83.905" [ref=e617]
+        - cell "6030" [ref=e618]
+        - cell "71.867" [ref=e619]
+        - cell [ref=e620]
+        - cell [ref=e621]:
+          - link "输入" [ref=e622] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_5_translate.result.json
+          - text: ·
+          - link "输出" [ref=e623] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_5_translate.answer.txt
+      - row [ref=e624]:
+        - cell "deepseek14b" [ref=e625]
+        - cell "文档对话：回答文档内容问题：（大概15986字）公司管理规章制度细则.docx（输入约 16937 字符）" [ref=e626]
+        - cell "doc_6_qa" [ref=e627]
+        - cell "OK" [ref=e628]
+        - cell "REVIEW" [ref=e629]
+        - cell "—" [ref=e630]
+        - cell "—" [ref=e631]
+        - cell "34.559" [ref=e632]
+        - cell "474" [ref=e633]
+        - cell "13.716" [ref=e634]
+        - cell [ref=e635]
+        - cell [ref=e636]:
+          - link "输入" [ref=e637] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_6_qa.result.json
+          - text: ·
+          - link "输出" [ref=e638] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_6_qa.answer.txt
+      - row [ref=e639]:
+        - cell "deepseek14b" [ref=e640]
+        - cell "文档阅读：提取全文总结、摘要和大纲：（大概15986字）公司管理规章制度细则.docx（输入约 16937 字符）" [ref=e641]
+        - cell "doc_6_summary" [ref=e642]
+        - cell "OK" [ref=e643]
+        - cell "REVIEW" [ref=e644]
+        - cell "—" [ref=e645]
+        - cell "—" [ref=e646]
+        - cell "95.048" [ref=e647]
+        - cell "2505" [ref=e648]
+        - cell "26.355" [ref=e649]
+        - cell [ref=e650]
+        - cell [ref=e651]:
+          - link "输入" [ref=e652] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_6_summary.result.json
+          - text: ·
+          - link "输出" [ref=e653] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_6_summary.answer.txt
+      - row [ref=e654]:
+        - cell "deepseek14b" [ref=e655]
+        - cell "文档审核：识别内部矛盾、错别字、表述问题和执行风险：（大概15986字）公司管理规章制度细则.docx（输入约 16937 字符）" [ref=e656]
+        - cell "doc_6_review" [ref=e657]
+        - cell "OK" [ref=e658]
+        - cell "REVIEW" [ref=e659]
+        - cell "—" [ref=e660]
+        - cell "—" [ref=e661]
+        - cell "85.943" [ref=e662]
+        - cell "1936" [ref=e663]
+        - cell "22.527" [ref=e664]
+        - cell [ref=e665]
+        - cell [ref=e666]:
+          - link "输入" [ref=e667] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_6_review.result.json
+          - text: ·
+          - link "输出" [ref=e668] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_6_review.answer.txt
+      - row [ref=e669]:
+        - cell "deepseek14b" [ref=e670]
+        - cell "文档翻译：将全文翻译为英文并保留层级和条款编号：（大概15986字）公司管理规章制度细则.docx（输入约 16937 字符）" [ref=e671]
+        - cell "doc_6_translate" [ref=e672]
+        - cell "OK" [ref=e673]
+        - cell "REVIEW" [ref=e674]
+        - cell "—" [ref=e675]
+        - cell "—" [ref=e676]
+        - cell "131.279" [ref=e677]
+        - cell "10507" [ref=e678]
+        - cell "80.036" [ref=e679]
+        - cell [ref=e680]
+        - cell [ref=e681]:
+          - link "输入" [ref=e682] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_6_translate.result.json
+          - text: ·
+          - link "输出" [ref=e683] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_6_translate.answer.txt
+      - row [ref=e684]:
+        - cell "deepseek14b" [ref=e685]
+        - cell "文档对话：回答文档内容问题：公司规章制度（大概5000字）.txt（输入约 5233 字符）" [ref=e686]
+        - cell "doc_7_qa" [ref=e687]
+        - cell "OK" [ref=e688]
+        - cell "REVIEW" [ref=e689]
+        - cell "—" [ref=e690]
+        - cell "—" [ref=e691]
+        - cell "95.307" [ref=e692]
+        - cell "1434" [ref=e693]
+        - cell "15.046" [ref=e694]
+        - cell [ref=e695]
+        - cell [ref=e696]:
+          - link "输入" [ref=e697] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_7_qa.result.json
+          - text: ·
+          - link "输出" [ref=e698] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_7_qa.answer.txt
+      - row [ref=e699]:
+        - cell "deepseek14b" [ref=e700]
+        - cell "文档阅读：提取全文总结、摘要和大纲：公司规章制度（大概5000字）.txt（输入约 5233 字符）" [ref=e701]
+        - cell "doc_7_summary" [ref=e702]
+        - cell "OK" [ref=e703]
+        - cell "REVIEW" [ref=e704]
+        - cell "—" [ref=e705]
+        - cell "—" [ref=e706]
+        - cell "74.804" [ref=e707]
+        - cell "1882" [ref=e708]
+        - cell "25.159" [ref=e709]
+        - cell [ref=e710]
+        - cell [ref=e711]:
+          - link "输入" [ref=e712] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_7_summary.result.json
+          - text: ·
+          - link "输出" [ref=e713] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_7_summary.answer.txt
+      - row [ref=e714]:
+        - cell "deepseek14b" [ref=e715]
+        - cell "文档审核：识别内部矛盾、错别字、表述问题和执行风险：公司规章制度（大概5000字）.txt（输入约 5233 字符）" [ref=e716]
+        - cell "doc_7_review" [ref=e717]
+        - cell "OK" [ref=e718]
+        - cell "REVIEW" [ref=e719]
+        - cell "—" [ref=e720]
+        - cell "—" [ref=e721]
+        - cell "93.578" [ref=e722]
+        - cell "2620" [ref=e723]
+        - cell "27.998" [ref=e724]
+        - cell [ref=e725]
+        - cell [ref=e726]:
+          - link "输入" [ref=e727] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_7_review.result.json
+          - text: ·
+          - link "输出" [ref=e728] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_7_review.answer.txt
+      - row [ref=e729]:
+        - cell "deepseek14b" [ref=e730]
+        - cell "文档翻译：将全文翻译为英文并保留层级和条款编号：公司规章制度（大概5000字）.txt（输入约 5233 字符）" [ref=e731]
+        - cell "doc_7_translate" [ref=e732]
+        - cell "OK" [ref=e733]
+        - cell "REVIEW" [ref=e734]
+        - cell "—" [ref=e735]
+        - cell "—" [ref=e736]
+        - cell "174.227" [ref=e737]
+        - cell "15196" [ref=e738]
+        - cell "87.22" [ref=e739]
+        - cell [ref=e740]
+        - cell [ref=e741]:
+          - link "输入" [ref=e742] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_7_translate.result.json
+          - text: ·
+          - link "输出" [ref=e743] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/doc_7_translate.answer.txt
+      - row [ref=e744]:
+        - cell "deepseek14b" [ref=e745]
+        - cell "缺失资料边界：原始测试资料中没有对应的约 10000 字合规管理制度，验证系统是否明确跳过而不伪造输入" [ref=e746]
+        - cell "missing_compliance" [ref=e747]
+        - cell "SKIPPED" [ref=e748]
+        - cell "NOT_EVALUATED" [ref=e749]
+        - cell [ref=e750]
+        - cell [ref=e751]
+        - cell [ref=e752]
+        - cell [ref=e753]
+        - cell [ref=e754]
+        - cell "原文件夹没有对应文档，不用其他制度冒充原用例" [ref=e755]
+        - cell "—" [ref=e756]
+      - row [ref=e757]:
+        - cell "deepseek14b" [ref=e758]
+        - cell "文档差异分析：比较两份制度文档，识别新增、删除和修改内容并引用原文，两份输入合计约 2024 字符" [ref=e759]
+        - cell "diff_1" [ref=e760]
+        - cell "OK" [ref=e761]
+        - cell "REVIEW" [ref=e762]
+        - cell "—" [ref=e763]
+        - cell "—" [ref=e764]
+        - cell "24.194" [ref=e765]
+        - cell "179" [ref=e766]
+        - cell "7.399" [ref=e767]
+        - cell [ref=e768]
+        - cell [ref=e769]:
+          - link "输入" [ref=e770] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_1.result.json
+          - text: ·
+          - link "输出" [ref=e771] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_1.answer.txt
+      - row [ref=e772]:
+        - cell "deepseek14b" [ref=e773]
+        - cell "文档差异分析：比较两份制度文档，识别新增、删除和修改内容并引用原文，两份输入合计约 6024 字符" [ref=e774]
+        - cell "diff_2" [ref=e775]
+        - cell "OK" [ref=e776]
+        - cell "REVIEW" [ref=e777]
+        - cell "—" [ref=e778]
+        - cell "—" [ref=e779]
+        - cell "21.051" [ref=e780]
+        - cell "207" [ref=e781]
+        - cell "9.833" [ref=e782]
+        - cell [ref=e783]
+        - cell [ref=e784]:
+          - link "输入" [ref=e785] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_2.result.json
+          - text: ·
+          - link "输出" [ref=e786] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_2.answer.txt
+      - row [ref=e787]:
+        - cell "deepseek14b" [ref=e788]
+        - cell "文档差异分析：比较两份制度文档，识别新增、删除和修改内容并引用原文，两份输入合计约 10024 字符" [ref=e789]
+        - cell "diff_3" [ref=e790]
+        - cell "OK" [ref=e791]
+        - cell "REVIEW" [ref=e792]
+        - cell "—" [ref=e793]
+        - cell "—" [ref=e794]
+        - cell "36.809" [ref=e795]
+        - cell "439" [ref=e796]
+        - cell "11.926" [ref=e797]
+        - cell [ref=e798]
+        - cell [ref=e799]:
+          - link "输入" [ref=e800] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_3.result.json
+          - text: ·
+          - link "输出" [ref=e801] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_3.answer.txt
+      - row [ref=e802]:
+        - cell "deepseek14b" [ref=e803]
+        - cell "文档差异分析：比较两份制度文档，识别新增、删除和修改内容并引用原文，两份输入合计约 10490 字符" [ref=e804]
+        - cell "diff_4" [ref=e805]
+        - cell "OK" [ref=e806]
+        - cell "REVIEW" [ref=e807]
+        - cell "—" [ref=e808]
+        - cell "—" [ref=e809]
+        - cell "17.949" [ref=e810]
+        - cell "189" [ref=e811]
+        - cell "10.53" [ref=e812]
+        - cell [ref=e813]
+        - cell [ref=e814]:
+          - link "输入" [ref=e815] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_4.result.json
+          - text: ·
+          - link "输出" [ref=e816] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_4.answer.txt
+      - row [ref=e817]:
+        - cell "deepseek14b" [ref=e818]
+        - cell "文档差异分析：比较两份制度文档，识别新增、删除和修改内容并引用原文，两份输入合计约 28024 字符" [ref=e819]
+        - cell "diff_5" [ref=e820]
+        - cell "OK" [ref=e821]
+        - cell "REVIEW" [ref=e822]
+        - cell "—" [ref=e823]
+        - cell "—" [ref=e824]
+        - cell "37.914" [ref=e825]
+        - cell "294" [ref=e826]
+        - cell "7.754" [ref=e827]
+        - cell [ref=e828]
+        - cell [ref=e829]:
+          - link "输入" [ref=e830] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_5.result.json
+          - text: ·
+          - link "输出" [ref=e831] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_5.answer.txt
+      - row [ref=e832]:
+        - cell "deepseek14b" [ref=e833]
+        - cell "文档差异分析：比较两份制度文档，识别新增、删除和修改内容并引用原文，两份输入合计约 29892 字符" [ref=e834]
+        - cell "diff_6" [ref=e835]
+        - cell "OK" [ref=e836]
+        - cell "REVIEW" [ref=e837]
+        - cell "—" [ref=e838]
+        - cell "—" [ref=e839]
+        - cell "75.936" [ref=e840]
+        - cell "1300" [ref=e841]
+        - cell "17.12" [ref=e842]
+        - cell [ref=e843]
+        - cell [ref=e844]:
+          - link "输入" [ref=e845] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_6.result.json
+          - text: ·
+          - link "输出" [ref=e846] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/diff_6.answer.txt
+      - row [ref=e847]:
+        - cell "deepseek14b" [ref=e848]
+        - cell "输出上限测量：使用 8192 tokens 上限重复生成长文，第 1 次，判断自然结束、截断或超时" [ref=e849]
+        - cell "capacity_8192_r1" [ref=e850]
+        - cell "OK" [ref=e851]
+        - cell "REVIEW" [ref=e852]
+        - cell "0.172" [ref=e853]
+        - cell "0.172" [ref=e854]
+        - cell "88.478" [ref=e855]
+        - cell "2835" [ref=e856]
+        - cell "32.042" [ref=e857]
+        - cell [ref=e858]
+        - cell [ref=e859]:
+          - link "输入" [ref=e860] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_8192_r1.result.json
+          - text: ·
+          - link "输出" [ref=e861] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_8192_r1.answer.txt
+      - row [ref=e862]:
+        - cell "deepseek14b" [ref=e863]
+        - cell "输出上限测量：使用 8192 tokens 上限重复生成长文，第 2 次，判断自然结束、截断或超时" [ref=e864]
+        - cell "capacity_8192_r2" [ref=e865]
+        - cell "OK" [ref=e866]
+        - cell "REVIEW" [ref=e867]
+        - cell "0.162" [ref=e868]
+        - cell "0.162" [ref=e869]
+        - cell "104.079" [ref=e870]
+        - cell "3250" [ref=e871]
+        - cell "31.226" [ref=e872]
+        - cell [ref=e873]
+        - cell [ref=e874]:
+          - link "输入" [ref=e875] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_8192_r2.result.json
+          - text: ·
+          - link "输出" [ref=e876] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_8192_r2.answer.txt
+      - row [ref=e877]:
+        - cell "deepseek14b" [ref=e878]
+        - cell "输出上限测量：使用 8192 tokens 上限重复生成长文，第 3 次，判断自然结束、截断或超时" [ref=e879]
+        - cell "capacity_8192_r3" [ref=e880]
+        - cell "OK" [ref=e881]
+        - cell "REVIEW" [ref=e882]
+        - cell "0.164" [ref=e883]
+        - cell "0.164" [ref=e884]
+        - cell "128.591" [ref=e885]
+        - cell "4185" [ref=e886]
+        - cell "32.545" [ref=e887]
+        - cell [ref=e888]
+        - cell [ref=e889]:
+          - link "输入" [ref=e890] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_8192_r3.result.json
+          - text: ·
+          - link "输出" [ref=e891] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_8192_r3.answer.txt
+      - row [ref=e892]:
+        - cell "deepseek14b" [ref=e893]
+        - cell "输出上限测量：使用 16384 tokens 上限重复生成长文，第 1 次，判断自然结束、截断或超时" [ref=e894]
+        - cell "capacity_16384_r1" [ref=e895]
+        - cell "OK" [ref=e896]
+        - cell "REVIEW" [ref=e897]
+        - cell "0.149" [ref=e898]
+        - cell "0.149" [ref=e899]
+        - cell "90.331" [ref=e900]
+        - cell "2869" [ref=e901]
+        - cell "31.761" [ref=e902]
+        - cell [ref=e903]
+        - cell [ref=e904]:
+          - link "输入" [ref=e905] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_16384_r1.result.json
+          - text: ·
+          - link "输出" [ref=e906] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_16384_r1.answer.txt
+      - row [ref=e907]:
+        - cell "deepseek14b" [ref=e908]
+        - cell "输出上限测量：使用 16384 tokens 上限重复生成长文，第 2 次，判断自然结束、截断或超时" [ref=e909]
+        - cell "capacity_16384_r2" [ref=e910]
+        - cell "OK" [ref=e911]
+        - cell "REVIEW" [ref=e912]
+        - cell "0.154" [ref=e913]
+        - cell "0.154" [ref=e914]
+        - cell "105.374" [ref=e915]
+        - cell "3501" [ref=e916]
+        - cell "33.225" [ref=e917]
+        - cell [ref=e918]
+        - cell [ref=e919]:
+          - link "输入" [ref=e920] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_16384_r2.result.json
+          - text: ·
+          - link "输出" [ref=e921] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_16384_r2.answer.txt
+      - row [ref=e922]:
+        - cell "deepseek14b" [ref=e923]
+        - cell "输出上限测量：使用 16384 tokens 上限重复生成长文，第 3 次，判断自然结束、截断或超时" [ref=e924]
+        - cell "capacity_16384_r3" [ref=e925]
+        - cell "OK" [ref=e926]
+        - cell "REVIEW" [ref=e927]
+        - cell "0.162" [ref=e928]
+        - cell "0.162" [ref=e929]
+        - cell "93.524" [ref=e930]
+        - cell "3022" [ref=e931]
+        - cell "32.313" [ref=e932]
+        - cell [ref=e933]
+        - cell [ref=e934]:
+          - link "输入" [ref=e935] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_16384_r3.result.json
+          - text: ·
+          - link "输出" [ref=e936] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_16384_r3.answer.txt
+      - row [ref=e937]:
+        - cell "deepseek14b" [ref=e938]
+        - cell "输出上限测量：使用 32768 tokens 上限重复生成长文，第 1 次，判断自然结束、截断或超时" [ref=e939]
+        - cell "capacity_32768_r1" [ref=e940]
+        - cell "OK" [ref=e941]
+        - cell "REVIEW" [ref=e942]
+        - cell "0.153" [ref=e943]
+        - cell "0.153" [ref=e944]
+        - cell "99.769" [ref=e945]
+        - cell "3343" [ref=e946]
+        - cell "33.508" [ref=e947]
+        - cell [ref=e948]
+        - cell [ref=e949]:
+          - link "输入" [ref=e950] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_32768_r1.result.json
+          - text: ·
+          - link "输出" [ref=e951] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_32768_r1.answer.txt
+      - row [ref=e952]:
+        - cell "deepseek14b" [ref=e953]
+        - cell "输出上限测量：使用 32768 tokens 上限重复生成长文，第 2 次，判断自然结束、截断或超时" [ref=e954]
+        - cell "capacity_32768_r2" [ref=e955]
+        - cell "OK" [ref=e956]
+        - cell "REVIEW" [ref=e957]
+        - cell "0.152" [ref=e958]
+        - cell "0.152" [ref=e959]
+        - cell "84.449" [ref=e960]
+        - cell "2600" [ref=e961]
+        - cell "30.788" [ref=e962]
+        - cell [ref=e963]
+        - cell [ref=e964]:
+          - link "输入" [ref=e965] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_32768_r2.result.json
+          - text: ·
+          - link "输出" [ref=e966] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_32768_r2.answer.txt
+      - row [ref=e967]:
+        - cell "deepseek14b" [ref=e968]
+        - cell "输出上限测量：使用 32768 tokens 上限重复生成长文，第 3 次，判断自然结束、截断或超时" [ref=e969]
+        - cell "capacity_32768_r3" [ref=e970]
+        - cell "OK" [ref=e971]
+        - cell "REVIEW" [ref=e972]
+        - cell "0.155" [ref=e973]
+        - cell "0.155" [ref=e974]
+        - cell "104.032" [ref=e975]
+        - cell "3179" [ref=e976]
+        - cell "30.558" [ref=e977]
+        - cell [ref=e978]
+        - cell [ref=e979]:
+          - link "输入" [ref=e980] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_32768_r3.result.json
+          - text: ·
+          - link "输出" [ref=e981] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/capacity_32768_r3.answer.txt
+      - row [ref=e982]:
+        - cell "deepseek14b" [ref=e983]
+        - cell "输入 token 上限测量：目标约 8192 tokens，重复第 1 次，验证最大稳定输入长度" [ref=e984]
+        - cell "input_8192_r1" [ref=e985]
+        - cell "OK" [ref=e986]
+        - cell "REVIEW" [ref=e987]
+        - cell "4.125" [ref=e988]
+        - cell "4.125" [ref=e989]
+        - cell "14.133" [ref=e990]
+        - cell "6" [ref=e991]
+        - cell "0.425" [ref=e992]
+        - cell [ref=e993]
+        - cell [ref=e994]:
+          - link "输入" [ref=e995] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_8192_r1.result.json
+          - text: ·
+          - link "输出" [ref=e996] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_8192_r1.answer.txt
+      - row [ref=e997]:
+        - cell "deepseek14b" [ref=e998]
+        - cell "输入 token 上限测量：目标约 8192 tokens，重复第 2 次，验证最大稳定输入长度" [ref=e999]
+        - cell "input_8192_r2" [ref=e1000]
+        - cell "OK" [ref=e1001]
+        - cell "REVIEW" [ref=e1002]
+        - cell "4.117" [ref=e1003]
+        - cell "4.117" [ref=e1004]
+        - cell "19.56" [ref=e1005]
+        - cell "6" [ref=e1006]
+        - cell "0.307" [ref=e1007]
+        - cell [ref=e1008]
+        - cell [ref=e1009]:
+          - link "输入" [ref=e1010] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_8192_r2.result.json
+          - text: ·
+          - link "输出" [ref=e1011] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_8192_r2.answer.txt
+      - row [ref=e1012]:
+        - cell "deepseek14b" [ref=e1013]
+        - cell "输入 token 上限测量：目标约 8192 tokens，重复第 3 次，验证最大稳定输入长度" [ref=e1014]
+        - cell "input_8192_r3" [ref=e1015]
+        - cell "OK" [ref=e1016]
+        - cell "REVIEW" [ref=e1017]
+        - cell "4.111" [ref=e1018]
+        - cell "4.111" [ref=e1019]
+        - cell "15.365" [ref=e1020]
+        - cell "6" [ref=e1021]
+        - cell "0.39" [ref=e1022]
+        - cell [ref=e1023]
+        - cell [ref=e1024]:
+          - link "输入" [ref=e1025] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_8192_r3.result.json
+          - text: ·
+          - link "输出" [ref=e1026] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_8192_r3.answer.txt
+      - row [ref=e1027]:
+        - cell "deepseek14b" [ref=e1028]
+        - cell "输入 token 上限测量：目标约 16384 tokens，重复第 1 次，验证最大稳定输入长度" [ref=e1029]
+        - cell "input_16384_r1" [ref=e1030]
+        - cell "OK" [ref=e1031]
+        - cell "REVIEW" [ref=e1032]
+        - cell "9.879" [ref=e1033]
+        - cell "9.879" [ref=e1034]
+        - cell "20.149" [ref=e1035]
+        - cell "6" [ref=e1036]
+        - cell "0.298" [ref=e1037]
+        - cell [ref=e1038]
+        - cell [ref=e1039]:
+          - link "输入" [ref=e1040] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_16384_r1.result.json
+          - text: ·
+          - link "输出" [ref=e1041] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_16384_r1.answer.txt
+      - row [ref=e1042]:
+        - cell "deepseek14b" [ref=e1043]
+        - cell "输入 token 上限测量：目标约 16384 tokens，重复第 2 次，验证最大稳定输入长度" [ref=e1044]
+        - cell "input_16384_r2" [ref=e1045]
+        - cell "OK" [ref=e1046]
+        - cell "REVIEW" [ref=e1047]
+        - cell "9.883" [ref=e1048]
+        - cell "9.883" [ref=e1049]
+        - cell "21.753" [ref=e1050]
+        - cell "6" [ref=e1051]
+        - cell "0.276" [ref=e1052]
+        - cell [ref=e1053]
+        - cell [ref=e1054]:
+          - link "输入" [ref=e1055] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_16384_r2.result.json
+          - text: ·
+          - link "输出" [ref=e1056] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_16384_r2.answer.txt
+      - row [ref=e1057]:
+        - cell "deepseek14b" [ref=e1058]
+        - cell "输入 token 上限测量：目标约 16384 tokens，重复第 3 次，验证最大稳定输入长度" [ref=e1059]
+        - cell "input_16384_r3" [ref=e1060]
+        - cell "OK" [ref=e1061]
+        - cell "REVIEW" [ref=e1062]
+        - cell "9.875" [ref=e1063]
+        - cell "9.875" [ref=e1064]
+        - cell "20.73" [ref=e1065]
+        - cell "16" [ref=e1066]
+        - cell "0.772" [ref=e1067]
+        - cell [ref=e1068]
+        - cell [ref=e1069]:
+          - link "输入" [ref=e1070] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_16384_r3.result.json
+          - text: ·
+          - link "输出" [ref=e1071] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_16384_r3.answer.txt
+      - row [ref=e1072]:
+        - cell "deepseek14b" [ref=e1073]
+        - cell "输入 token 上限测量：目标约 24576 tokens，重复第 1 次，验证最大稳定输入长度" [ref=e1074]
+        - cell "input_24576_r1" [ref=e1075]
+        - cell "OK" [ref=e1076]
+        - cell "REVIEW" [ref=e1077]
+        - cell "17.338" [ref=e1078]
+        - cell "17.338" [ref=e1079]
+        - cell "30.547" [ref=e1080]
+        - cell "19" [ref=e1081]
+        - cell "0.622" [ref=e1082]
+        - cell [ref=e1083]
+        - cell [ref=e1084]:
+          - link "输入" [ref=e1085] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_24576_r1.result.json
+          - text: ·
+          - link "输出" [ref=e1086] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_24576_r1.answer.txt
+      - row [ref=e1087]:
+        - cell "deepseek14b" [ref=e1088]
+        - cell "输入 token 上限测量：目标约 24576 tokens，重复第 2 次，验证最大稳定输入长度" [ref=e1089]
+        - cell "input_24576_r2" [ref=e1090]
+        - cell "OK" [ref=e1091]
+        - cell "REVIEW" [ref=e1092]
+        - cell "17.319" [ref=e1093]
+        - cell "17.319" [ref=e1094]
+        - cell "29.173" [ref=e1095]
+        - cell "6" [ref=e1096]
+        - cell "0.206" [ref=e1097]
+        - cell [ref=e1098]
+        - cell [ref=e1099]:
+          - link "输入" [ref=e1100] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_24576_r2.result.json
+          - text: ·
+          - link "输出" [ref=e1101] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_24576_r2.answer.txt
+      - row [ref=e1102]:
+        - cell "deepseek14b" [ref=e1103]
+        - cell "输入 token 上限测量：目标约 24576 tokens，重复第 3 次，验证最大稳定输入长度" [ref=e1104]
+        - cell "input_24576_r3" [ref=e1105]
+        - cell "OK" [ref=e1106]
+        - cell "REVIEW" [ref=e1107]
+        - cell "17.38" [ref=e1108]
+        - cell "17.38" [ref=e1109]
+        - cell "26.667" [ref=e1110]
+        - cell "6" [ref=e1111]
+        - cell "0.225" [ref=e1112]
+        - cell [ref=e1113]
+        - cell [ref=e1114]:
+          - link "输入" [ref=e1115] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_24576_r3.result.json
+          - text: ·
+          - link "输出" [ref=e1116] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_24576_r3.answer.txt
+      - row [ref=e1117]:
+        - cell "deepseek14b" [ref=e1118]
+        - cell "输入 token 上限测量：目标约 32768 tokens，重复第 1 次，验证最大稳定输入长度" [ref=e1119]
+        - cell "input_32768_r1" [ref=e1120]
+        - cell "OK" [ref=e1121]
+        - cell "REVIEW" [ref=e1122]
+        - cell "26.341" [ref=e1123]
+        - cell "26.341" [ref=e1124]
+        - cell "37.201" [ref=e1125]
+        - cell "6" [ref=e1126]
+        - cell "0.161" [ref=e1127]
+        - cell [ref=e1128]
+        - cell [ref=e1129]:
+          - link "输入" [ref=e1130] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_32768_r1.result.json
+          - text: ·
+          - link "输出" [ref=e1131] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_32768_r1.answer.txt
+      - row [ref=e1132]:
+        - cell "deepseek14b" [ref=e1133]
+        - cell "输入 token 上限测量：目标约 32768 tokens，重复第 2 次，验证最大稳定输入长度" [ref=e1134]
+        - cell "input_32768_r2" [ref=e1135]
+        - cell "OK" [ref=e1136]
+        - cell "REVIEW" [ref=e1137]
+        - cell "26.329" [ref=e1138]
+        - cell "26.329" [ref=e1139]
+        - cell "30.74" [ref=e1140]
+        - cell "6" [ref=e1141]
+        - cell "0.195" [ref=e1142]
+        - cell [ref=e1143]
+        - cell [ref=e1144]:
+          - link "输入" [ref=e1145] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_32768_r2.result.json
+          - text: ·
+          - link "输出" [ref=e1146] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_32768_r2.answer.txt
+      - row [ref=e1147]:
+        - cell "deepseek14b" [ref=e1148]
+        - cell "输入 token 上限测量：目标约 32768 tokens，重复第 3 次，验证最大稳定输入长度" [ref=e1149]
+        - cell "input_32768_r3" [ref=e1150]
+        - cell "OK" [ref=e1151]
+        - cell "REVIEW" [ref=e1152]
+        - cell "26.387" [ref=e1153]
+        - cell "26.387" [ref=e1154]
+        - cell "39.227" [ref=e1155]
+        - cell "16" [ref=e1156]
+        - cell "0.408" [ref=e1157]
+        - cell [ref=e1158]
+        - cell [ref=e1159]:
+          - link "输入" [ref=e1160] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_32768_r3.result.json
+          - text: ·
+          - link "输出" [ref=e1161] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/input_32768_r3.answer.txt
+      - row [ref=e1162]:
+        - cell "deepseek14b" [ref=e1163]
+        - cell "上下文总长测量：目标输入约 16384 + 输出 4096 tokens，重复第 1 次" [ref=e1164]
+        - cell "context_16384_4096_r1" [ref=e1165]
+        - cell "OK" [ref=e1166]
+        - cell "REVIEW" [ref=e1167]
+        - cell "9.879" [ref=e1168]
+        - cell "9.879" [ref=e1169]
+        - cell "78.262" [ref=e1170]
+        - cell "1789" [ref=e1171]
+        - cell "22.859" [ref=e1172]
+        - cell [ref=e1173]
+        - cell [ref=e1174]:
+          - link "输入" [ref=e1175] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_16384_4096_r1.result.json
+          - text: ·
+          - link "输出" [ref=e1176] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_16384_4096_r1.answer.txt
+      - row [ref=e1177]:
+        - cell "deepseek14b" [ref=e1178]
+        - cell "上下文总长测量：目标输入约 16384 + 输出 4096 tokens，重复第 2 次" [ref=e1179]
+        - cell "context_16384_4096_r2" [ref=e1180]
+        - cell "OK" [ref=e1181]
+        - cell "REVIEW" [ref=e1182]
+        - cell "9.892" [ref=e1183]
+        - cell "9.892" [ref=e1184]
+        - cell "35.266" [ref=e1185]
+        - cell "6" [ref=e1186]
+        - cell "0.17" [ref=e1187]
+        - cell [ref=e1188]
+        - cell [ref=e1189]:
+          - link "输入" [ref=e1190] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_16384_4096_r2.result.json
+          - text: ·
+          - link "输出" [ref=e1191] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_16384_4096_r2.answer.txt
+      - row [ref=e1192]:
+        - cell "deepseek14b" [ref=e1193]
+        - cell "上下文总长测量：目标输入约 16384 + 输出 4096 tokens，重复第 3 次" [ref=e1194]
+        - cell "context_16384_4096_r3" [ref=e1195]
+        - cell "OK" [ref=e1196]
+        - cell "REVIEW" [ref=e1197]
+        - cell "9.877" [ref=e1198]
+        - cell "9.877" [ref=e1199]
+        - cell "25.608" [ref=e1200]
+        - cell "6" [ref=e1201]
+        - cell "0.234" [ref=e1202]
+        - cell [ref=e1203]
+        - cell [ref=e1204]:
+          - link "输入" [ref=e1205] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_16384_4096_r3.result.json
+          - text: ·
+          - link "输出" [ref=e1206] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_16384_4096_r3.answer.txt
+      - row [ref=e1207]:
+        - cell "deepseek14b" [ref=e1208]
+        - cell "上下文总长测量：目标输入约 24576 + 输出 4096 tokens，重复第 1 次" [ref=e1209]
+        - cell "context_24576_4096_r1" [ref=e1210]
+        - cell "OK" [ref=e1211]
+        - cell "REVIEW" [ref=e1212]
+        - cell "17.341" [ref=e1213]
+        - cell "17.341" [ref=e1214]
+        - cell "29.812" [ref=e1215]
+        - cell "6" [ref=e1216]
+        - cell "0.201" [ref=e1217]
+        - cell [ref=e1218]
+        - cell [ref=e1219]:
+          - link "输入" [ref=e1220] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_24576_4096_r1.result.json
+          - text: ·
+          - link "输出" [ref=e1221] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_24576_4096_r1.answer.txt
+      - row [ref=e1222]:
+        - cell "deepseek14b" [ref=e1223]
+        - cell "上下文总长测量：目标输入约 24576 + 输出 4096 tokens，重复第 2 次" [ref=e1224]
+        - cell "context_24576_4096_r2" [ref=e1225]
+        - cell "OK" [ref=e1226]
+        - cell "REVIEW" [ref=e1227]
+        - cell "17.353" [ref=e1228]
+        - cell "17.353" [ref=e1229]
+        - cell "33.512" [ref=e1230]
+        - cell "6" [ref=e1231]
+        - cell "0.179" [ref=e1232]
+        - cell [ref=e1233]
+        - cell [ref=e1234]:
+          - link "输入" [ref=e1235] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_24576_4096_r2.result.json
+          - text: ·
+          - link "输出" [ref=e1236] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_24576_4096_r2.answer.txt
+      - row [ref=e1237]:
+        - cell "deepseek14b" [ref=e1238]
+        - cell "上下文总长测量：目标输入约 24576 + 输出 4096 tokens，重复第 3 次" [ref=e1239]
+        - cell "context_24576_4096_r3" [ref=e1240]
+        - cell "OK" [ref=e1241]
+        - cell "REVIEW" [ref=e1242]
+        - cell "17.376" [ref=e1243]
+        - cell "17.376" [ref=e1244]
+        - cell "33.551" [ref=e1245]
+        - cell "33" [ref=e1246]
+        - cell "0.984" [ref=e1247]
+        - cell [ref=e1248]
+        - cell [ref=e1249]:
+          - link "输入" [ref=e1250] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_24576_4096_r3.result.json
+          - text: ·
+          - link "输出" [ref=e1251] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_24576_4096_r3.answer.txt
+      - row [ref=e1252]:
+        - cell "deepseek14b" [ref=e1253]
+        - cell "上下文总长测量：目标输入约 32768 + 输出 4096 tokens，重复第 1 次" [ref=e1254]
+        - cell "context_32768_4096_r1" [ref=e1255]
+        - cell "OK" [ref=e1256]
+        - cell "REVIEW" [ref=e1257]
+        - cell "26.379" [ref=e1258]
+        - cell "26.379" [ref=e1259]
+        - cell "46.296" [ref=e1260]
+        - cell "6" [ref=e1261]
+        - cell "0.13" [ref=e1262]
+        - cell [ref=e1263]
+        - cell [ref=e1264]:
+          - link "输入" [ref=e1265] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_4096_r1.result.json
+          - text: ·
+          - link "输出" [ref=e1266] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_4096_r1.answer.txt
+      - row [ref=e1267]:
+        - cell "deepseek14b" [ref=e1268]
+        - cell "上下文总长测量：目标输入约 32768 + 输出 4096 tokens，重复第 2 次" [ref=e1269]
+        - cell "context_32768_4096_r2" [ref=e1270]
+        - cell "OK" [ref=e1271]
+        - cell "REVIEW" [ref=e1272]
+        - cell "26.39" [ref=e1273]
+        - cell "26.39" [ref=e1274]
+        - cell "41.98" [ref=e1275]
+        - cell "6" [ref=e1276]
+        - cell "0.143" [ref=e1277]
+        - cell [ref=e1278]
+        - cell [ref=e1279]:
+          - link "输入" [ref=e1280] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_4096_r2.result.json
+          - text: ·
+          - link "输出" [ref=e1281] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_4096_r2.answer.txt
+      - row [ref=e1282]:
+        - cell "deepseek14b" [ref=e1283]
+        - cell "上下文总长测量：目标输入约 32768 + 输出 4096 tokens，重复第 3 次" [ref=e1284]
+        - cell "context_32768_4096_r3" [ref=e1285]
+        - cell "OK" [ref=e1286]
+        - cell "REVIEW" [ref=e1287]
+        - cell "26.397" [ref=e1288]
+        - cell "26.397" [ref=e1289]
+        - cell "98.446" [ref=e1290]
+        - cell "1599" [ref=e1291]
+        - cell "16.242" [ref=e1292]
+        - cell [ref=e1293]
+        - cell [ref=e1294]:
+          - link "输入" [ref=e1295] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_4096_r3.result.json
+          - text: ·
+          - link "输出" [ref=e1296] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_4096_r3.answer.txt
+      - row [ref=e1297]:
+        - cell "deepseek14b" [ref=e1298]
+        - cell "上下文总长测量：目标输入约 32768 + 输出 16384 tokens，重复第 1 次" [ref=e1299]
+        - cell "context_32768_16384_r1" [ref=e1300]
+        - cell "OK" [ref=e1301]
+        - cell "REVIEW" [ref=e1302]
+        - cell "26.371" [ref=e1303]
+        - cell "26.371" [ref=e1304]
+        - cell "41.479" [ref=e1305]
+        - cell "6" [ref=e1306]
+        - cell "0.145" [ref=e1307]
+        - cell [ref=e1308]
+        - cell [ref=e1309]:
+          - link "输入" [ref=e1310] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_16384_r1.result.json
+          - text: ·
+          - link "输出" [ref=e1311] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_16384_r1.answer.txt
+      - row [ref=e1312]:
+        - cell "deepseek14b" [ref=e1313]
+        - cell "上下文总长测量：目标输入约 32768 + 输出 16384 tokens，重复第 2 次" [ref=e1314]
+        - cell "context_32768_16384_r2" [ref=e1315]
+        - cell "OK" [ref=e1316]
+        - cell "REVIEW" [ref=e1317]
+        - cell "26.396" [ref=e1318]
+        - cell "26.396" [ref=e1319]
+        - cell "42.34" [ref=e1320]
+        - cell "24" [ref=e1321]
+        - cell "0.567" [ref=e1322]
+        - cell [ref=e1323]
+        - cell [ref=e1324]:
+          - link "输入" [ref=e1325] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_16384_r2.result.json
+          - text: ·
+          - link "输出" [ref=e1326] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_16384_r2.answer.txt
+      - row [ref=e1327]:
+        - cell "deepseek14b" [ref=e1328]
+        - cell "上下文总长测量：目标输入约 32768 + 输出 16384 tokens，重复第 3 次" [ref=e1329]
+        - cell "context_32768_16384_r3" [ref=e1330]
+        - cell "OK" [ref=e1331]
+        - cell "REVIEW" [ref=e1332]
+        - cell "26.409" [ref=e1333]
+        - cell "26.409" [ref=e1334]
+        - cell "37.197" [ref=e1335]
+        - cell "6" [ref=e1336]
+        - cell "0.161" [ref=e1337]
+        - cell [ref=e1338]
+        - cell [ref=e1339]:
+          - link "输入" [ref=e1340] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_16384_r3.result.json
+          - text: ·
+          - link "输出" [ref=e1341] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/context_32768_16384_r3.answer.txt
+      - row [ref=e1342]:
+        - cell "deepseek14b" [ref=e1343]
+        - cell "压力测试：回答文档内容问题，验证长文理解、关键信息提取和回答准确性；并发 1，第 1 轮；测试对象：未标注文档" [ref=e1344]
+        - cell "stress_qa_c1_r1_1" [ref=e1345]
+        - cell "OK" [ref=e1346]
+        - cell "REVIEW" [ref=e1347]
+        - cell "—" [ref=e1348]
+        - cell "—" [ref=e1349]
+        - cell "45.234" [ref=e1350]
+        - cell "705" [ref=e1351]
+        - cell "15.586" [ref=e1352]
+        - cell [ref=e1353]
+        - cell [ref=e1354]:
+          - link "输入" [ref=e1355] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_qa_c1_r1_1.result.json
+          - text: ·
+          - link "输出" [ref=e1356] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_qa_c1_r1_1.answer.txt
+      - row [ref=e1357]:
+        - cell "deepseek14b" [ref=e1358]
+        - cell "压力测试：回答文档内容问题，验证长文理解、关键信息提取和回答准确性；并发 1，第 2 轮；测试对象：未标注文档" [ref=e1359]
+        - cell "stress_qa_c1_r2_1" [ref=e1360]
+        - cell "OK" [ref=e1361]
+        - cell "REVIEW" [ref=e1362]
+        - cell "—" [ref=e1363]
+        - cell "—" [ref=e1364]
+        - cell "52.317" [ref=e1365]
+        - cell "1172" [ref=e1366]
+        - cell "22.402" [ref=e1367]
+        - cell [ref=e1368]
+        - cell [ref=e1369]:
+          - link "输入" [ref=e1370] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_qa_c1_r2_1.result.json
+          - text: ·
+          - link "输出" [ref=e1371] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_qa_c1_r2_1.answer.txt
+      - row [ref=e1372]:
+        - cell "deepseek14b" [ref=e1373]
+        - cell "压力测试：回答文档内容问题，验证长文理解、关键信息提取和回答准确性；并发 1，第 3 轮；测试对象：未标注文档" [ref=e1374]
+        - cell "stress_qa_c1_r3_1" [ref=e1375]
+        - cell "OK" [ref=e1376]
+        - cell "REVIEW" [ref=e1377]
+        - cell "—" [ref=e1378]
+        - cell "—" [ref=e1379]
+        - cell "54.774" [ref=e1380]
+        - cell "1205" [ref=e1381]
+        - cell "21.999" [ref=e1382]
+        - cell [ref=e1383]
+        - cell [ref=e1384]:
+          - link "输入" [ref=e1385] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_qa_c1_r3_1.result.json
+          - text: ·
+          - link "输出" [ref=e1386] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_qa_c1_r3_1.answer.txt
+      - row [ref=e1387]:
+        - cell "deepseek14b" [ref=e1388]
+        - cell "压力测试：提取全文总结、摘要和大纲，验证长文阅读、归纳和结构化输出能力；并发 1，第 1 轮；测试对象：未标注文档" [ref=e1389]
+        - cell "stress_summary_c1_r1_1" [ref=e1390]
+        - cell "OK" [ref=e1391]
+        - cell "REVIEW" [ref=e1392]
+        - cell "—" [ref=e1393]
+        - cell "—" [ref=e1394]
+        - cell "78.19" [ref=e1395]
+        - cell "1921" [ref=e1396]
+        - cell "24.568" [ref=e1397]
+        - cell [ref=e1398]
+        - cell [ref=e1399]:
+          - link "输入" [ref=e1400] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_summary_c1_r1_1.result.json
+          - text: ·
+          - link "输出" [ref=e1401] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_summary_c1_r1_1.answer.txt
+      - row [ref=e1402]:
+        - cell "deepseek14b" [ref=e1403]
+        - cell "压力测试：提取全文总结、摘要和大纲，验证长文阅读、归纳和结构化输出能力；并发 1，第 2 轮；测试对象：未标注文档" [ref=e1404]
+        - cell "stress_summary_c1_r2_1" [ref=e1405]
+        - cell "OK" [ref=e1406]
+        - cell "REVIEW" [ref=e1407]
+        - cell "—" [ref=e1408]
+        - cell "—" [ref=e1409]
+        - cell "77.848" [ref=e1410]
+        - cell "1394" [ref=e1411]
+        - cell "17.907" [ref=e1412]
+        - cell [ref=e1413]
+        - cell [ref=e1414]:
+          - link "输入" [ref=e1415] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_summary_c1_r2_1.result.json
+          - text: ·
+          - link "输出" [ref=e1416] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_summary_c1_r2_1.answer.txt
+      - row [ref=e1417]:
+        - cell "deepseek14b" [ref=e1418]
+        - cell "压力测试：提取全文总结、摘要和大纲，验证长文阅读、归纳和结构化输出能力；并发 1，第 3 轮；测试对象：未标注文档" [ref=e1419]
+        - cell "stress_summary_c1_r3_1" [ref=e1420]
+        - cell "OK" [ref=e1421]
+        - cell "REVIEW" [ref=e1422]
+        - cell "—" [ref=e1423]
+        - cell "—" [ref=e1424]
+        - cell "55.012" [ref=e1425]
+        - cell "1192" [ref=e1426]
+        - cell "21.668" [ref=e1427]
+        - cell [ref=e1428]
+        - cell [ref=e1429]:
+          - link "输入" [ref=e1430] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_summary_c1_r3_1.result.json
+          - text: ·
+          - link "输出" [ref=e1431] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_summary_c1_r3_1.answer.txt
+      - row [ref=e1432]:
+        - cell "deepseek14b" [ref=e1433]
+        - cell "压力测试：识别内部矛盾、错别字、表述问题和执行风险，验证文档审查完整性；并发 1，第 1 轮；测试对象：未标注文档" [ref=e1434]
+        - cell "stress_review_c1_r1_1" [ref=e1435]
+        - cell "OK" [ref=e1436]
+        - cell "REVIEW" [ref=e1437]
+        - cell "—" [ref=e1438]
+        - cell "—" [ref=e1439]
+        - cell "68.124" [ref=e1440]
+        - cell "1494" [ref=e1441]
+        - cell "21.93" [ref=e1442]
+        - cell [ref=e1443]
+        - cell [ref=e1444]:
+          - link "输入" [ref=e1445] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_review_c1_r1_1.result.json
+          - text: ·
+          - link "输出" [ref=e1446] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_review_c1_r1_1.answer.txt
+      - row [ref=e1447]:
+        - cell "deepseek14b" [ref=e1448]
+        - cell "压力测试：识别内部矛盾、错别字、表述问题和执行风险，验证文档审查完整性；并发 1，第 2 轮；测试对象：未标注文档" [ref=e1449]
+        - cell "stress_review_c1_r2_1" [ref=e1450]
+        - cell "OK" [ref=e1451]
+        - cell "REVIEW" [ref=e1452]
+        - cell "—" [ref=e1453]
+        - cell "—" [ref=e1454]
+        - cell "79.581" [ref=e1455]
+        - cell "2100" [ref=e1456]
+        - cell "26.388" [ref=e1457]
+        - cell [ref=e1458]
+        - cell [ref=e1459]:
+          - link "输入" [ref=e1460] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_review_c1_r2_1.result.json
+          - text: ·
+          - link "输出" [ref=e1461] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_review_c1_r2_1.answer.txt
+      - row [ref=e1462]:
+        - cell "deepseek14b" [ref=e1463]
+        - cell "压力测试：识别内部矛盾、错别字、表述问题和执行风险，验证文档审查完整性；并发 1，第 3 轮；测试对象：未标注文档" [ref=e1464]
+        - cell "stress_review_c1_r3_1" [ref=e1465]
+        - cell "OK" [ref=e1466]
+        - cell "REVIEW" [ref=e1467]
+        - cell "—" [ref=e1468]
+        - cell "—" [ref=e1469]
+        - cell "72.254" [ref=e1470]
+        - cell "2084" [ref=e1471]
+        - cell "28.843" [ref=e1472]
+        - cell [ref=e1473]
+        - cell [ref=e1474]:
+          - link "输入" [ref=e1475] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_review_c1_r3_1.result.json
+          - text: ·
+          - link "输出" [ref=e1476] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_review_c1_r3_1.answer.txt
+      - row [ref=e1477]:
+        - cell "deepseek14b" [ref=e1478]
+        - cell "压力测试：比较两份制度文档的新增、删除和修改内容并引用原文，验证差异识别能力；并发 1，第 1 轮；测试对象：未标注文档" [ref=e1479]
+        - cell "stress_diff_c1_r1_1" [ref=e1480]
+        - cell "OK" [ref=e1481]
+        - cell "REVIEW" [ref=e1482]
+        - cell "—" [ref=e1483]
+        - cell "—" [ref=e1484]
+        - cell "23.328" [ref=e1485]
+        - cell "243" [ref=e1486]
+        - cell "10.417" [ref=e1487]
+        - cell [ref=e1488]
+        - cell [ref=e1489]:
+          - link "输入" [ref=e1490] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_diff_c1_r1_1.result.json
+          - text: ·
+          - link "输出" [ref=e1491] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_diff_c1_r1_1.answer.txt
+      - row [ref=e1492]:
+        - cell "deepseek14b" [ref=e1493]
+        - cell "压力测试：比较两份制度文档的新增、删除和修改内容并引用原文，验证差异识别能力；并发 1，第 2 轮；测试对象：未标注文档" [ref=e1494]
+        - cell "stress_diff_c1_r2_1" [ref=e1495]
+        - cell "OK" [ref=e1496]
+        - cell "REVIEW" [ref=e1497]
+        - cell "—" [ref=e1498]
+        - cell "—" [ref=e1499]
+        - cell "25.443" [ref=e1500]
+        - cell "218" [ref=e1501]
+        - cell "8.568" [ref=e1502]
+        - cell [ref=e1503]
+        - cell [ref=e1504]:
+          - link "输入" [ref=e1505] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_diff_c1_r2_1.result.json
+          - text: ·
+          - link "输出" [ref=e1506] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_diff_c1_r2_1.answer.txt
+      - row [ref=e1507]:
+        - cell "deepseek14b" [ref=e1508]
+        - cell "压力测试：比较两份制度文档的新增、删除和修改内容并引用原文，验证差异识别能力；并发 1，第 3 轮；测试对象：未标注文档" [ref=e1509]
+        - cell "stress_diff_c1_r3_1" [ref=e1510]
+        - cell "OK" [ref=e1511]
+        - cell "REVIEW" [ref=e1512]
+        - cell "—" [ref=e1513]
+        - cell "—" [ref=e1514]
+        - cell "19.314" [ref=e1515]
+        - cell "235" [ref=e1516]
+        - cell "12.167" [ref=e1517]
+        - cell [ref=e1518]
+        - cell [ref=e1519]:
+          - link "输入" [ref=e1520] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_diff_c1_r3_1.result.json
+          - text: ·
+          - link "输出" [ref=e1521] [cursor=pointer]:
+            - /url: 20260919_203640_761705/deepseek14b/requests/stress_diff_c1_r3_1.answer.txt
+  - heading "压力批次统计" [level=2] [ref=e1522]
+  - paragraph [ref=e1523]: P50/P95采用最近秩法，基于接口正常完成且未截断请求；小样本仅作观察。吞吐为同批次成功请求数/批次墙钟时间，不把串行功能用例混为吞吐。
+  - generic [ref=e1524]: "[ { \"model\": \"deepseek14b\", \"batch\": \"stress_qa_c1_r1\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 45.24018494784832, \"requests_per_second\": 0.022104242083730942, \"p50_seconds\": 45.23434992879629, \"p95_seconds\": 45.23434992879629 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_qa_c1_r2\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 52.3202495649457, \"requests_per_second\": 0.019113058678336178, \"p50_seconds\": 52.3174237459898, \"p95_seconds\": 52.3174237459898 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_qa_c1_r3\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 54.77686284482479, \"requests_per_second\": 0.018255883014565117, \"p50_seconds\": 54.77413034439087, \"p95_seconds\": 54.77413034439087 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_summary_c1_r1\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 78.19336461275816, \"requests_per_second\": 0.012788808934778058, \"p50_seconds\": 78.18975621461868, \"p95_seconds\": 78.18975621461868 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_summary_c1_r2\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 77.85124621540308, \"requests_per_second\": 0.012845009535661707, \"p50_seconds\": 77.84783792495728, \"p95_seconds\": 77.84783792495728 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_summary_c1_r3\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 55.0152698084712, \"requests_per_second\": 0.01817677171231506, \"p50_seconds\": 55.01244504004717, \"p95_seconds\": 55.01244504004717 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_review_c1_r1\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 68.12755373865366, \"requests_per_second\": 0.014678348848927304, \"p50_seconds\": 68.12434040755033, \"p95_seconds\": 68.12434040755033 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_review_c1_r2\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 79.58478850871325, \"requests_per_second\": 0.012565215272143573, \"p50_seconds\": 79.58114071190357, \"p95_seconds\": 79.58114071190357 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_review_c1_r3\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 72.25699403136969, \"requests_per_second\": 0.013839490742804212, \"p50_seconds\": 72.25368493795395, \"p95_seconds\": 72.25368493795395 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_diff_c1_r1\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 23.33005029708147, \"requests_per_second\": 0.042863173772287044, \"p50_seconds\": 23.327957436442375, \"p95_seconds\": 23.327957436442375 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_diff_c1_r2\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 25.445185020565987, \"requests_per_second\": 0.0393001661882888, \"p50_seconds\": 25.44311149418354, \"p95_seconds\": 25.44311149418354 }, { \"model\": \"deepseek14b\", \"batch\": \"stress_diff_c1_r3\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 19.315821528434753, \"requests_per_second\": 0.05177103125165572, \"p50_seconds\": 19.313755810260773, \"p95_seconds\": 19.313755810260773 }, { \"model\": \"deepseek14b\", \"batch\": \"limit_concurrency_c1_r1\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 5.838031277060509, \"requests_per_second\": 0.17129062050923222, \"p50_seconds\": 5.836191162467003, \"p95_seconds\": 5.836191162467003 }, { \"model\": \"deepseek14b\", \"batch\": \"limit_concurrency_c1_r2\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 6.044582076370716, \"requests_per_second\": 0.16543740946279273, \"p50_seconds\": 6.042932033538818, \"p95_seconds\": 6.042932033538818 }, { \"model\": \"deepseek14b\", \"batch\": \"limit_concurrency_c1_r3\", \"concurrency\": 1, \"requests\": 1, \"successful\": 1, \"success_rate\": 1.0, \"wall_seconds\": 5.952560879290104, \"requests_per_second\": 0.1679949218964156, \"p50_seconds\": 5.950921952724457, \"p95_seconds\": 5.950921952724457 } ]"
+  - separator [ref=e1525]
+  - heading "单模型初测总结" [level=2] [ref=e1526]
+  - paragraph [ref=e1527]: 本节由测试脚本根据本次运行结果自动生成。当前报告定位为单模型初测，不作多模型横向结论。
+  - list [ref=e1528]:
+    - listitem [ref=e1529]: 测试模型：deepseek14b；实际请求 91 条；HTTP 错误/超时 0 条。
+    - listitem [ref=e1530]: 执行状态：OK 87 条，非预期截断 2 条，预期截断 1 条，跳过 1 条。
+    - listitem [ref=e1531]: 自动质量：PASS 0 条，FAIL 5 条，REVIEW 85 条。
+    - listitem [ref=e1532]: 主要质量失败用例：count_1000, count_5000, repeat, speech, doc_2_translate。
+    - listitem [ref=e1533]: 非预期截断用例：count_1000, doc_2_translate。
+    - listitem [ref=e1534]: 观察到的稳定输入边界：32768；观察到的上下文 usage 总量：37167。
+  - paragraph [ref=e1535]:
+    - strong [ref=e1536]: 结论：
+    - text: 接口连通和基础生成链路可用，但长序号精确生成、长文写作字数、长文翻译完整性以及并发边界仍未达标。OK 仅表示请求完成，不代表任务质量通过；边界值也仅代表本次档位观察结果，不是服务理论上限。
+  - paragraph [ref=e1537]:
+    - strong [ref=e1538]: 后续建议：
+    - text: 长输出任务单独调高 max_tokens 或分块处理；对序号、固定短回复、字数、翻译语言残留增加严格自动校验；并发测试应逐级增加并发数，且只把完整且质量通过的响应计入稳定成功。

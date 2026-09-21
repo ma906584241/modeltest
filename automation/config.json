@@ -65,6 +65,8 @@
   "speech_max_tokens": 8192,
   "safety_margin": 1024,
   "tokenizer_paths": {},
+  "strict_estimated_preflight": false,
+  "require_count_tokenizer": false,
   "supports_min_new_tokens": false,
   "network_retries": 1,
   "retry_backoff_seconds": 1,

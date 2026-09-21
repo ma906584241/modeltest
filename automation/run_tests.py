@@ -45,8 +45,30 @@ def read_docx(path):
                      for p in root.findall(".//w:p", NS)).strip()
 
 
+def resolve_data_dir(cfg):
+    """Find one document directory without depending on the launch cwd."""
+    def has_documents(path):
+        return path.is_dir() and any(p.suffix.lower() in (".docx", ".doc")
+                                     and not p.name.startswith("~$") for p in path.iterdir())
+    if cfg.get("data_dir"):
+        path = Path(cfg["data_dir"]).expanduser()
+        path = path if path.is_absolute() else ROOT / path
+        if not path.is_dir():
+            raise ValueError(f"测试资料目录不存在：{path}")
+        return path.resolve()
+    if has_documents(ROOT):
+        return ROOT
+    candidates = list(dict.fromkeys(p.resolve() for p in (ROOT / "upload", ROOT.parent / "upload") if has_documents(p)))
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise ValueError("找到多个资料目录，请用 --data-dir 明确指定")
+    return ROOT
+
+
 def build_cases(cfg):
     cases, sources = [], []
+    data_root = resolve_data_dir(cfg)
 
     def add(cid, group, prompt, source, rule="manual", **kw):
         cases.append(dict(id=cid, group=group, prompt=prompt, source=source, rule=rule, **kw))
@@ -66,7 +88,7 @@ def build_cases(cfg):
     add("js_copy", "代码", "写一个js的浅拷贝", "历史报告 C17")
     add("vue_methods", "代码", "vue3 子组件调用父组件方法 请列举三种方法 并详细说明每种方法的优劣", "历史报告 C18")
     add("python_sort", "代码", "请用python写一段快速排序代码", "本次用户提供示例；仅保存供审阅，不执行生成代码")
-    poem = next(ROOT.glob("测试记录5*.docx"), None)
+    poem = next(data_root.glob("测试记录5*.docx"), None)
     if poem:
         try:
             text = read_docx(poem).split("\n")[0].strip()
@@ -74,7 +96,7 @@ def build_cases(cfg):
         except (OSError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
             add("poem", "翻译", "", poem.name, data_error=f"原始文档结构无法解析：{exc}")
     docs = []
-    for path in sorted(ROOT.glob("*.docx")):
+    for path in sorted(data_root.glob("*.docx")):
         if path.name.startswith(("测试记录", "~$")):
             continue
         try:
@@ -87,7 +109,7 @@ def build_cases(cfg):
         sources.append(dict(file=path.name, chars=len(text), sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
         docs.append((path.name, text))
     # A text sidecar permits a reviewed conversion of the old binary .doc.
-    for path in sorted(ROOT.glob("*.doc")):
+    for path in sorted(data_root.glob("*.doc")):
         sidecar = path.with_suffix(".txt")
         if sidecar.exists():
             try:
@@ -154,9 +176,8 @@ def build_limit_cases(cfg):
     unit = "企业知识管理测试文本。"
 
     def prompt_for(target):
-        # Chinese text is commonly split into roughly two tokens per character on
-        # this service. Keep a conservative character budget so the requested
-        # token level does not expand several times beyond the target.
+        # Preserve the historical character workload for comparisons. The level
+        # is only a nominal label; measured tokens come from server usage.
         chars = max(128, int(target * 2.0))
         return (unit * max(1, chars // len(unit))) + "\n请只回复：输入已接收。"
 
@@ -169,7 +190,7 @@ def build_limit_cases(cfg):
     for input_level, output_level in context_pairs:
         for repeat in range(1, repeats + 1):
             cases.append(dict(id=f"context_{input_level}_{output_level}_r{repeat}", group="上下文总长测量",
-                              prompt=prompt_for(input_level) + "\n请持续输出编号列表，不要提前结束。",
+                              prompt=prompt_for(input_level).rsplit("\n", 1)[0] + "\n请持续输出编号列表，不要提前结束。",
                               source="输入加输出上下文边界测试", rule="limit_context",
                               max_tokens=output_level, limit_axis="context",
                               input_level=input_level, output_level=output_level,
@@ -208,7 +229,13 @@ def evaluate(case, answer, finish):
         return ("PASS" if ok else "FAIL", f"要求精确回复 {expected}；实际字符数 {len(answer)}")
     if rule == "capacity":
         return "REVIEW", f"容量阶梯 {case.get('capacity_level')} tokens，第 {case.get('capacity_repeat')} 次；需结合 finish_reason 和完整性确认边界"
-    if rule in ("limit_input", "limit_context"):
+    if rule == "limit_input":
+        expected = "输入已接收。"
+        normalized = answer.strip().replace("!", "！")
+        ok = normalized in (expected, expected.rstrip("。")) and finish == "stop"
+        return ("PASS" if ok else "FAIL",
+                f"要求精确确认输入且自然结束；实际正文 {answer.strip()!r}，finish_reason={finish}")
+    if rule == "limit_context":
         return "REVIEW", "需结合实际 usage token、finish_reason、错误和超时判定稳定边界"
     if finish == "length":
         return "FAIL", "输出达到token上限，可能不完整"
@@ -321,7 +348,7 @@ def request_once(cfg, model, case, folder, request_id, timeout=None):
         result["request_phase"] = "preflight"
         result.update(preflight(cfg, model, case, payload))
         result["requested_max_tokens"] = payload["max_tokens"]
-        save_json(target.with_suffix(".request.json"), dict(endpoint=endpoint, payload=payload, case=case, budget={k: result[k] for k in ("prompt_tokens_budget", "token_budget_method", "standard_answer_tokens", "safety_margin")}))
+        save_json(target.with_suffix(".request.json"), dict(endpoint=endpoint, payload=payload, case=case, budget={k: result.get(k) for k in ("prompt_tokens_budget", "token_budget_method", "standard_answer_tokens", "safety_margin", "preflight_warnings")}))
         result["request_phase"] = "connect"
         u = urllib.parse.urlsplit(endpoint)
         if u.scheme not in ("http", "https") or not u.hostname:
@@ -601,10 +628,10 @@ def limit_summary(rows, batches, cfg):
             groups.setdefault(level, []).append(row)
         stable = []
         for level, group in groups.items():
-            if all(r.get("status") in good and
+            if all(r.get("status") in good and r.get("quality") == "PASS" and
                    (r.get("usage") or {}).get("prompt_tokens") is not None
                    for r in group):
-                stable.append(level)
+                stable.append(min(r["usage"]["prompt_tokens"] for r in group))
         return max(stable) if stable else None
 
     input_stable = stable_groups("input_", "limit_level")
@@ -707,7 +734,7 @@ def report(folder, rows, title, batches, evidence_root=None):
     save_json(folder / "limit_summary.json", boundaries)
     columns = ["failure_type", "failure_reason", "recoverable", "recovery_action", "attempt_count", "raw_status", "raw_quality", "final_status", "final_quality", "raw_failure_type", "raw_failure_reason", "model", "case_id", "case_name", "group", "status", "quality", "http_status", "first_event_s", "first_output_s",
                "first_answer_s", "total_s", "answer_chars", "output_chars", "reasoning_chars", "chars_per_second",
-               "generation_chars_per_second", "completion_tokens", "tokens_per_second", "finish_reason", "error", "quality_note", "source", "request_phase", "stream", "requested_max_tokens", "client_host"]
+               "generation_chars_per_second", "completion_tokens", "tokens_per_second", "finish_reason", "error", "quality_note", "source", "request_phase", "stream", "requested_max_tokens", "client_host", "token_budget_method", "preflight_warnings"]
     with (folder / "results.csv").open("w", encoding="utf-8-sig", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
@@ -719,7 +746,7 @@ def report(folder, rows, title, batches, evidence_root=None):
     show = ["model", "case_name", "case_id", "status", "quality", "first_output_s", "first_answer_s", "total_s", "answer_chars", "chars_per_second", "error"]
     labels = ["模型", "测试用例（中文说明）", "内部编号", "执行状态", "自动检查", "首输出秒", "首正文秒", "总耗时秒", "正文字符", "正文字符/总秒", "错误/跳过原因"]
     show.extend(["raw_quality", "final_quality", "attempt_count", "recovery_action"])
-    labels.extend(["????", "????", "????", "????"])
+    labels.extend(["首次检查", "最终检查", "请求次数", "恢复动作"])
     labels[10] = "失败/跳过原因与优化建议"
     labels.append("证据")
     evidence = []
@@ -747,14 +774,15 @@ def report(folder, rows, title, batches, evidence_root=None):
         (r["case_id"], r.get("raw_quality", r.get("quality")), r.get("final_quality", r.get("quality")),
          r.get("failure_type") or r.get("raw_failure_type"),
          r.get("failure_reason") or r.get("raw_failure_reason"), r.get("recovery_action", ""))) + "</tr>" for r in failures)
-    failure_analysis = ('<section class="failure-analysis"><h2>?????????</h2>'
-        '<p>????????????????????????PASS???????????????????????</p>'
-        '<table><thead><tr><th>??</th><th>????</th><th>????</th><th>??</th><th>??</th><th>????</th></tr></thead><tbody>'
+    failure_analysis = ('<section class="failure-analysis"><h2>失败原因与恢复记录</h2>'
+        '<p>保留首次和最终检查结果。PASS仅表示机器规则通过，语义质量仍需人工复核。</p>'
+        '<table><thead><tr><th>用例</th><th>首次检查</th><th>最终检查</th><th>类型</th><th>原因</th><th>恢复动作</th></tr></thead><tbody>'
         + failure_rows + '</tbody></table></section>')
 
     def display_value(row, key):
         if key == "error":
-            return row.get("failure_reason") or row.get("error") or row.get("quality_note", "")
+            reason = row.get("failure_reason") or row.get("error") or row.get("quality_note", "")
+            return "；".join(filter(None, [reason] + row.get("preflight_warnings", [])))
         return row.get(key, "")
     body = "".join("<tr>" + "".join("<td>"+esc(round(r[k],3) if isinstance(r.get(k),float) else display_value(r,k))+"</td>" for k in show)+f"<td>{evidence[i]}</td></tr>" for i,r in enumerate(rows))
     summary = {s: sum(r["status"] == s for r in rows) for s in ("OK", "EXPECTED_TRUNCATED", "TRUNCATED", "ERROR", "TIMEOUT", "SKIPPED")}
@@ -777,7 +805,7 @@ def report(folder, rows, title, batches, evidence_root=None):
     ]
     plan_body = "".join("<tr><td>" + esc(name) + "</td><td>" + esc(detail) + "</td><td>" + esc(schedule) + "</td><td>" + esc(count) + "</td></tr>" for name, detail, schedule, count in plan_rows)
     test_plan = "<h2>全量测试范围</h2><p>以下为本次全量测试工具覆盖的模块、测试目标、执行档位和当前报告已记录数量。</p><table><thead><tr><th>测试模块</th><th>具体测试内容</th><th>执行档位/重复次数</th><th>已记录数量</th></tr></thead><tbody>" + plan_body + "</tbody></table>"
-    page = '<!doctype html><meta charset="utf-8"><title>'+esc(title)+'</title><style>body{font:15px system-ui;margin:32px;color:#182432}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:8px;text-align:left;overflow-wrap:anywhere}th{background:#eaf2f8;position:sticky;top:0}tr:nth-child(even){background:#f7f9fa}pre{white-space:pre-wrap}</style><h1>'+esc(title)+'</h1><p>'+esc(summary)+'</p><p>REVIEW＝待人工评价；PASS仅代表指定规则通过。SKIPPED不计为模型失败。非流式首输出/首正文时间留空，不能测量TTFT。未标记的推理可能混在正文中。首输出包含推理；首正文根据可识别think标签或reasoning字段区分。字符按Unicode字符计数，非token。API结果不可直接与历史页面端到端耗时等同比较。</p><h2>稳定边界判定</h2><p>以下“最大稳定”表示本次测试档位的所有重复请求成功；它不是服务配置理论上限。输出上限只有在 finish_reason=length 且 completion_tokens 接近 requested_max_tokens 时才算触达，finish_reason=stop 表示模型提前结束。</p><table><thead><tr><th>指标</th><th>本次最大稳定值</th><th>判定依据</th></tr></thead><tbody><tr><td>最大稳定输入 token</td><td>'+esc(boundaries.get("max_stable_input_tokens") or "未测出")+'</td><td>输入边界档位重复请求均成功</td></tr><tr><td>最大稳定输出 token</td><td>'+esc(boundaries.get("max_stable_output_tokens") or "未测出")+'</td><td>输出容量档位重复请求均成功；length 触达次数 '+esc(boundaries.get("output_length_finish_count"))+'</td></tr><tr><td>最大稳定上下文长度</td><td>'+esc(boundaries.get("max_stable_context_tokens") or "未测出")+'</td><td>输入 token + 输出 token，且未超过 maxSeqLen</td></tr><tr><td>最大稳定并发数</td><td>'+esc(boundaries.get("max_stable_concurrency") or "未测出")+'</td><td>该并发档位所有批次请求均成功</td></tr></tbody></table><h2>压力批次统计</h2><p>P50/P95采用最近秩法，基于接口正常完成且未截断请求；小样本仅作观察。吞吐为同批次成功请求数/批次墙钟时间，不把串行功能用例混为吞吐。</p><pre>'+esc(json.dumps(batches,ensure_ascii=False,indent=2))+'</pre>'
+    page = '<!doctype html><meta charset="utf-8"><title>'+esc(title)+'</title><style>body{font:15px system-ui;margin:32px;color:#182432}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:8px;text-align:left;overflow-wrap:anywhere}th{background:#eaf2f8;position:sticky;top:0}tr:nth-child(even){background:#f7f9fa}pre{white-space:pre-wrap}</style><h1>'+esc(title)+'</h1><p>'+esc(summary)+'</p><p>REVIEW＝待人工评价；PASS仅代表指定规则通过。SKIPPED不计为模型失败。非流式首输出/首正文时间留空，不能测量TTFT。未标记的推理可能混在正文中。首输出包含推理；首正文根据可识别think标签或reasoning字段区分。字符按Unicode字符计数，非token。API结果不可直接与历史页面端到端耗时等同比较。</p><h2>稳定边界判定</h2><p>以下“最大稳定”表示本次测试档位的所有重复请求成功；它不是服务配置理论上限。输出上限只有在 finish_reason=length 且 completion_tokens 接近 requested_max_tokens 时才算触达，finish_reason=stop 表示模型提前结束。</p><table><thead><tr><th>指标</th><th>本次最大稳定值</th><th>判定依据</th></tr></thead><tbody><tr><td>最大稳定输入 token</td><td>'+esc(boundaries.get("max_stable_input_tokens") or "未测出")+'</td><td>输入边界档位重复请求均成功</td></tr><tr><td>最大稳定输出 token</td><td>'+esc(boundaries.get("max_stable_output_tokens") or "未测出")+'</td><td>输出容量档位重复请求均成功；length 触达次数 '+esc(boundaries.get("output_length_finish_count"))+'</td></tr><tr><td>最大稳定上下文长度</td><td>'+esc(boundaries.get("max_stable_context_tokens") or "未测出")+'</td><td>输入 token + 输出 token，且未超过 maxSeqLen</td></tr><tr><td>最大稳定并发数</td><td>'+esc(boundaries.get("max_stable_concurrency") or "未测出")+'</td><td>该并发档位所有批次请求均成功</td></tr></tbody></table><!--BOUNDARY_NOTE--><!--RUN_CONFIG--><h2>压力批次统计</h2><p>P50/P95采用最近秩法，基于接口正常完成且未截断请求；小样本仅作观察。吞吐为同批次成功请求数/批次墙钟时间，不把串行功能用例混为吞吐。</p><pre>'+esc(json.dumps(batches,ensure_ascii=False,indent=2))+'</pre>'
     report_styles = """
     body{max-width:1800px;margin:32px auto;padding:0 24px;line-height:1.55;background:#fbfcfd}
     h1{margin:0 0 20px;font-size:30px;letter-spacing:0}h2{margin:40px 0 12px;font-size:21px;letter-spacing:0}
@@ -800,23 +828,24 @@ def report(folder, rows, title, batches, evidence_root=None):
                      + ("上下文边界未形成稳定档位，失败原因：" + esc(context_note) + "。" if context_note else "上下文边界档位均未满足稳定判定（需检查请求状态和 usage）。")
                      + ("并发边界已测试档位：" + esc(", ".join(map(str, tested_concurrency))) + "。" if tested_concurrency else "并发边界没有可用批次摘要，已从请求明细重新统计。")
                      + "</p>")
-    page = page.replace("</table>", boundary_note + "</table>", 1)
+    page = page.replace("<!--BOUNDARY_NOTE-->", boundary_note, 1)
     note = "<p><strong>状态说明：</strong>EXPECTED_TRUNCATED 表示该用例允许触达 token 上限；TRUNCATED 表示非预期截断，应提高 max_tokens 后复测。报告中的‘证据’链接可打开逐请求结果和输出。</p>"
     page = page.replace("</h1>", "</h1>" + note, 1)
     for config_path in (folder / "run_config.json", folder.parent / "run_config.json", folder.parent.parent / "run_config.json"):
         if config_path.exists():
             config_html = "<h2>本次运行配置</h2><pre>" + esc(config_path.read_text(encoding="utf-8")) + "</pre>"
-            page = page.replace("</table>", "</table>" + config_html, 1)
+            page = page.replace("<!--RUN_CONFIG-->", config_html, 1)
             break
+    page = page.replace("<!--RUN_CONFIG-->", "", 1)
     models_seen = sorted({str(r.get("model", "")) for r in rows if r.get("model")})
     failed_ids = [str(r.get("case_id", "")) for r in rows if r.get("quality") == "FAIL"]
     truncated_ids = [str(r.get("case_id", "")) for r in rows if r.get("status") == "TRUNCATED"]
     summary_html = (
-        "<hr><h2>??????</h2>"
-        f"<p>???{esc(', '.join(models_seen))}????? {sum(r.get('attempt_count', int(r['status'] != 'SKIPPED')) for r in rows)} ??"
-        f"?? FAIL {sum(r.get('raw_quality', r.get('quality')) == 'FAIL' for r in rows)} ??"
-        f"?? FAIL {len(failed_ids)} ??{esc(', '.join(failed_ids) or '?')}?</p>"
-        "<p>OK?????????????????????????????????count_5000???????????????</p>"
+        "<hr><h2>本次测评汇总</h2>"
+        f"<p>模型：{esc(', '.join(models_seen))}；实际请求 {sum(r.get('attempt_count', int(r['status'] != 'SKIPPED')) for r in rows)} 次；"
+        f"首次 FAIL {sum(r.get('raw_quality', r.get('quality')) == 'FAIL' for r in rows)} 项；"
+        f"最终 FAIL {len(failed_ids)} 项：{esc(', '.join(failed_ids) or '无')}。</p>"
+        "<p>OK表示接口正常完成，不代表内容质量通过。恢复后的结果与首次结果分别保留；count_5000不采用分段拼接。</p>"
     )
     page += summary_html
     (folder / "report.html").write_text(page, encoding="utf-8")
@@ -832,8 +861,12 @@ def main():
     parser.add_argument("--max-tokens", type=int, help="覆盖配置中的 max_tokens 和 5000 字长输出上限")
     parser.add_argument("--timeout", type=int, dest="request_timeout_seconds", help="覆盖单次请求总超时（秒）")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--data-dir", type=Path, help="业务文档目录；相对路径基于工具根目录")
+    parser.add_argument("--allow-no-documents", action="store_true", help="明确允许功能/完整测试缺少业务文档")
     args = parser.parse_args()
     cfg = json.loads(args.config.read_text(encoding="utf-8-sig"))
+    if args.data_dir is not None:
+        cfg["data_dir"] = str(args.data_dir)
     if args.max_tokens is not None:
         if args.max_tokens < 1:
             parser.error("--max-tokens 必须为正整数")
@@ -856,17 +889,24 @@ def main():
     max_iter_times = server_limits.get("max_iter_times")
     if max_iter_times and any(level > max_iter_times for level in cfg.get("capacity_token_levels", [])):
         parser.error("capacity_token_levels cannot exceed server_limits.max_iter_times")
+    try:
+        cfg["data_dir"] = str(resolve_data_dir(cfg))
+        cases, sources = build_cases(cfg) if args.mode not in ("capacity", "limits") else ([], [])
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.mode in ("all", "full", "functional", "stress", "extended") and not sources and not args.allow_no_documents:
+        parser.error("未加载业务文档，不能生成完整测评。请用 --data-dir 指定资料目录；仅测基础能力可加 --allow-no-documents")
+    print(f"资料目录：{cfg['data_dir']}；业务文档：{len(sources)}", flush=True)
     stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     base = ROOT / "模型测评结果" / stamp
     base.mkdir(parents=True)
-    cases, sources = build_cases(cfg)
     if args.mode == "capacity":
         cases = build_capacity_cases(cfg)
         sources = []
     elif args.mode == "limits":
         cases = build_capacity_cases(cfg) + build_limit_cases(cfg)
         sources = []
-    elif args.mode == "full":
+    elif args.mode in ("all", "full"):
         cases.extend(build_capacity_cases(cfg))
         cases.extend(build_limit_cases(cfg))
     save_json(base / "cases.json", cases)
@@ -937,7 +977,7 @@ def main():
                                     break
                             if not ok:
                                 break
-                if args.mode in ("full", "limits"):
+                if args.mode in ("all", "full", "limits"):
                     probe, limit_levels = build_concurrency_probe(cfg)
                     for level in limit_levels:
                         for repeat in range(1, cfg.get("limit_repeats", 3) + 1):

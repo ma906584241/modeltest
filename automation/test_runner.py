@@ -1,6 +1,9 @@
 """Local fake-server tests. No internal model endpoint is called."""
 import http.server
 import json
+import contextlib
+import io
+import sys
 from pathlib import Path
 import tempfile
 import threading
@@ -163,6 +166,13 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(runner.evaluate(case, text, "stop")[0], "FAIL")
         self.assertEqual(runner.evaluate(dict(rule="translate", source_text="没有编号的原文。"), "A sentence.", "stop")[0], "REVIEW")
 
+    def test_input_limit_requires_exact_acknowledgement(self):
+        case = dict(rule="limit_input")
+        self.assertEqual(runner.evaluate(case, "输入已接收。", "stop")[0], "PASS")
+        self.assertEqual(runner.evaluate(case, "输入已接收", "stop")[0], "PASS")
+        self.assertEqual(runner.evaluate(case, "输入已接收。补充内容", "stop")[0], "FAIL")
+        self.assertEqual(runner.evaluate(case, "输入已接收。", "length")[0], "FAIL")
+
     def config(self):
         cfg = json.loads((runner.HERE / "config.json").read_text(encoding="utf-8"))
         cfg.update(network_retries=0, retry_backoff_seconds=0)
@@ -180,6 +190,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result["attempt_count"], 0)
         self.assertEqual(result["final_quality"], "FAIL")
         payload = dict(max_tokens=32768, messages=[dict(role="user", content="测" * 11000)])
+        cfg["strict_estimated_preflight"] = True
         with self.assertRaisesRegex(policy.PreflightError, "max_seq_len"):
             policy.preflight(cfg, "mock", dict(id="context"), payload)
 
@@ -217,8 +228,102 @@ class RunnerTests(unittest.TestCase):
 
     def test_count5000_missing_tokenizer_blocks(self):
         cfg = self.config()
+        cfg["require_count_tokenizer"] = True
         with self.assertRaises(policy.PreflightError):
             policy.preflight(cfg, "mock", dict(id="count_5000"), dict(max_tokens=49152, messages=[]))
+
+    def test_estimate_warns_and_request_reaches_server(self):
+        cfg = self.config()
+        case = dict(id="input_8192_r1", group="test", source="mock", prompt="测" * 16400, max_tokens=512)
+        before = len(Handler.received)
+        with tempfile.TemporaryDirectory() as directory:
+            result = runner.request_model(cfg, "mock", case, Path(directory), "estimated")
+        self.assertEqual(len(Handler.received), before + 1)
+        self.assertTrue(result["preflight_warnings"])
+        self.assertNotEqual(result["request_phase"], "preflight")
+
+    def test_exact_input_limit_still_blocks(self):
+        class Tokenizer:
+            def apply_chat_template(self, *args, **kwargs):
+                return [0] * 40000
+        cfg = self.config()
+        cfg["tokenizer_paths"] = {"mock": "fixture"}
+        with patch.object(policy, "load_tokenizer", return_value=Tokenizer()):
+            with self.assertRaisesRegex(policy.PreflightError, "max_input_token_len"):
+                policy.preflight(cfg, "mock", {}, dict(max_tokens=512, messages=[]))
+
+    def test_count5000_fallback_budget(self):
+        payload = dict(max_tokens=49152, messages=[])
+        budget = policy.preflight(self.config(), "mock", dict(id="count_5000"), payload)
+        self.assertEqual(payload["max_tokens"], 32768)
+        self.assertIsNone(budget["standard_answer_tokens"])
+        self.assertTrue(budget["preflight_warnings"])
+        self.assertNotIn("min_new_tokens", payload)
+
+    def test_upload_document_discovery_and_explicit_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            upload = root / "upload"
+            upload.mkdir()
+            (upload / "制度.doc").write_bytes(b"legacy")
+            (upload / "制度.txt").write_text("测试制度正文", encoding="utf-8")
+            with patch.object(runner, "ROOT", root):
+                self.assertEqual(runner.resolve_data_dir({}), upload.resolve())
+                cases, sources = runner.build_cases(self.config())
+                self.assertEqual(len(sources), 1)
+                self.assertEqual(len([c for c in cases if c["id"].startswith("doc_")]), 4)
+                self.assertEqual(runner.resolve_data_dir({"data_dir": "upload"}), upload.resolve())
+                with self.assertRaises(ValueError):
+                    runner.resolve_data_dir({"data_dir": "missing"})
+
+    def test_input_summary_uses_measured_tokens_and_quality(self):
+        rows = [dict(case_id=f"input_8192_r{i}", status="OK", quality="PASS", usage=dict(prompt_tokens=n))
+                for i, n in enumerate((7300, 7310, 7320), 1)]
+        self.assertEqual(runner.limit_summary(rows, [], {})["max_stable_input_tokens"], 7300)
+        rows[0]["quality"] = "FAIL"
+        self.assertIsNone(runner.limit_summary(rows, [], {})["max_stable_input_tokens"])
+
+    def test_historical_full_matrix_contract(self):
+        cfg = self.config()
+        cfg["data_dir"] = str(runner.ROOT)
+        cases, sources = runner.build_cases(cfg)
+        capacity = runner.build_capacity_cases(cfg)
+        limits = runner.build_limit_cases(cfg)
+        self.assertEqual(len(sources), 7)
+        self.assertEqual(len(cases), 45)
+        self.assertEqual(len(capacity), 9)
+        self.assertEqual(len(limits), 24)
+        self.assertEqual(len({case["id"] for case in cases + capacity + limits}), 78)
+        stress = 4 * sum(cfg["concurrency_levels"]) * cfg["stress_rounds"]
+        concurrency = sum(cfg["limit_concurrency_levels"]) * cfg["limit_repeats"]
+        self.assertEqual(1 + len(cases + capacity + limits) + stress + concurrency, 91)
+
+    def test_missing_documents_stops_full_run(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(runner, "ROOT", Path(directory)):
+            with patch.object(sys, "argv", ["run_tests.py", "--mode", "full", "--dry-run"]):
+                with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaises(SystemExit) as raised:
+                        runner.main()
+            self.assertEqual(raised.exception.code, 2)
+            self.assertFalse((Path(directory) / "模型测评结果").exists())
+
+    def test_full_dry_run_loads_explicit_documents(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(runner, "ROOT", Path(directory)):
+            args = ["run_tests.py", "--mode", "full", "--dry-run", "--data-dir", str(runner.HERE.parent)]
+            with patch.object(sys, "argv", args), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(runner.main(), 0)
+            output = Path(directory) / "模型测评结果"
+            run = next(p for p in output.iterdir() if p.is_dir())
+            sources = json.loads((run / "sources.json").read_text(encoding="utf-8"))
+            self.assertTrue(sources)
+            cases = json.loads((run / "cases.json").read_text(encoding="utf-8"))
+            self.assertTrue(any(c["id"].startswith("input_") for c in cases))
+            self.assertTrue(any(c["id"].startswith("doc_") for c in cases))
+            page = (run / "report.html").read_text(encoding="utf-8")
+            self.assertNotIn("????", page)
+            self.assertNotIn("<!--BOUNDARY_NOTE-->", page)
+            self.assertNotIn("<!--RUN_CONFIG-->", page)
+            self.assertIn("<h2>失败原因与恢复记录</h2>", page)
 
     def test_count5000_whole_request_retry_only(self):
         cfg = self.config()
@@ -243,6 +348,8 @@ class RunnerTests(unittest.TestCase):
         complete = "\n".join(section(i) for i in range(1, 9))
         case = dict(id="speech", group="test", source="mock", prompt="speech", rule="speech", minimum=4000)
         self.assertEqual(runner.evaluate(case, complete, "stop")[0], "PASS")
+        bold = "\n".join("**" + line + "**" if line.startswith("第") else line for line in complete.splitlines())
+        self.assertEqual(runner.evaluate(case, bold, "stop")[0], "PASS")
         self.assertEqual(runner.evaluate(case, complete.replace("第8章", "第7章"), "stop")[0], "FAIL")
         self.assertEqual(runner.evaluate(case, complete + "\n无法直接完成发言稿", "stop")[0], "FAIL")
         pieces = [section(1), "\n".join(section(i) for i in range(2, 9))]

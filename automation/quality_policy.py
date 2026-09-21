@@ -28,9 +28,10 @@ def preflight(cfg, model, case, payload):
         raise PreflightError("原始文档为空、含替换字符或 NUL，需检查编码和转换结果", "DATA_QUALITY")
     path = cfg.get("tokenizer_paths", {}).get(model)
     tokenizer = load_tokenizer(path) if path else None
-    exact_required = case.get("id") == "count_5000"
-    if exact_required and tokenizer is None:
+    count_test = case.get("id") == "count_5000"
+    if count_test and tokenizer is None and cfg.get("require_count_tokenizer", False):
         raise PreflightError(f"count_5000 必须配置 tokenizer_paths.{model} 为服务模型对应的本地 tokenizer 目录")
+    warnings = []
     if tokenizer:
         try:
             prompt_tokens = len(tokenizer.apply_chat_template(payload["messages"], tokenize=True, add_generation_prompt=True))
@@ -42,7 +43,7 @@ def preflight(cfg, model, case, payload):
         prompt_tokens = sum(len(m["content"].encode("utf-8")) + 32 for m in payload["messages"]) + 64
         method = "utf8_bytes_plus_template_margin_estimate"
     standard_tokens = None
-    if exact_required:
+    if count_test and tokenizer:
         standard_tokens = len(tokenizer.encode("\n".join(f"{i} 测试" for i in range(5001)), add_special_tokens=False))
         required = math.ceil(standard_tokens * 1.1)
         if required > payload["max_tokens"]:
@@ -51,20 +52,28 @@ def preflight(cfg, model, case, payload):
         if cfg.get("supports_min_new_tokens", False):
             payload["min_new_tokens"] = standard_tokens
     limits = cfg.get("server_limits", {})
+    if count_test and tokenizer is None:
+        payload["max_tokens"] = min(payload["max_tokens"], limits.get("max_iter_times", 32768))
+        warnings.append("未配置 tokenizer：按服务端输出额度执行5000序号测试，不能保证额度足够；不设置 min_new_tokens")
     maximum = payload["max_tokens"]
     margin = cfg.get("safety_margin", 1024)
     if not isinstance(maximum, int) or maximum < 1 or margin < 0:
         raise PreflightError("max_tokens 必须为正整数，safety_margin 不得为负数")
     if maximum > limits.get("max_iter_times", 32768):
         raise PreflightError(f"请求输出 {maximum} 超过服务端 max_iter_times={limits.get('max_iter_times', 32768)}")
+    def budget_issue(message):
+        if tokenizer is not None or cfg.get("strict_estimated_preflight", False):
+            raise PreflightError(message)
+        warnings.append(message + "；字节估算不能证明超限，交由服务端判断")
     if prompt_tokens + maximum + margin > limits.get("max_seq_len", 65536):
-        raise PreflightError(f"输入 {prompt_tokens} + 输出 {maximum} + 余量 {margin} 超过 max_seq_len={limits.get('max_seq_len', 65536)} ({method})")
+        budget_issue(f"输入 {prompt_tokens} + 输出 {maximum} + 余量 {margin} 超过 max_seq_len={limits.get('max_seq_len', 65536)} ({method})")
     if prompt_tokens > limits.get("max_input_token_len", 32768):
-        raise PreflightError(f"输入 {prompt_tokens} 超过 max_input_token_len ({method})")
+        budget_issue(f"输入 {prompt_tokens} 超过 max_input_token_len ({method})")
     if payload.get("min_new_tokens", 0) > maximum:
         raise PreflightError("min_new_tokens 超过 max_tokens")
     return dict(prompt_tokens_budget=prompt_tokens, token_budget_method=method,
-                standard_answer_tokens=standard_tokens, safety_margin=margin)
+                standard_answer_tokens=standard_tokens, safety_margin=margin,
+                preflight_warnings=warnings)
 
 
 def chinese_number(value):
@@ -125,7 +134,7 @@ def validate(case, answer, finish):
         ok = ok and (finish == "length" or (rest == 0 and finish == "stop"))
         return ("PASS" if ok else "FAIL", "忽略空白，仅允许完整重复；length允许末尾合法前缀")
     if rule == "speech":
-        headings = list(re.finditer(r"(?m)^\s*(?:#{1,6}\s*)?第([一二三四五六七八12345678]+)章[^\n]*\n", answer))
+        headings = list(re.finditer(r"(?m)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?第([一二三四五六七八12345678]+)章[^\n]*(?:\n|$)", answer))
         ids = [chinese_number(m[1]) for m in headings]
         sections = [answer[m.end():headings[i+1].start() if i+1 < len(headings) else len(answer)] for i, m in enumerate(headings)]
         counts = [len(re.findall(r"[\u4e00-\u9fff]", s)) for s in sections]

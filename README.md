@@ -49,6 +49,10 @@ export MODEL_API_KEY="your-token"
 
 没有文档时仍可运行不依赖文档的用例；相关文档用例会按程序规则跳过或减少覆盖范围。
 
+资料默认从工具根目录读取；根目录无文档时，会检查 `upload/` 和上级的 `upload/`。也可用 `--data-dir <资料目录>` 明确指定（相对路径基于工具根目录）。完整、功能及压力模式无业务文档时会停止并提示，避免输出缺失大部分用例的报告；确实只需基础用例时加 `--allow-no-documents`。
+
+未配置 tokenizer 时，UTF-8 字节估算仅作警告，实际输入是否超限由服务端判定，报告使用服务端 usage 记录实测 token。`strict_estimated_preflight=true` 可恢复保守拦截。5000序号测试默认在服务端输出上限内执行并提示预算不确定，仍严格校验全部5001行；`require_count_tokenizer=true` 可要求必须提供真实 tokenizer。配置真实 tokenizer 后继续执行精确预算检查。
+
 当前目录结构：
 
 ```text
